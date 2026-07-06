@@ -52,7 +52,7 @@ export default function App() {
               <h1 className="text-xl font-black tracking-tighter text-black uppercase">VoiceOp</h1>
               <span className="bg-[#FFD600] text-black border-2 border-black text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">MVP</span>
             </div>
-            <p className="text-[11px] font-bold text-gray-700">Interactive Phone Prototype & Voice Controls</p>
+            <p className="text-[11px] font-bold text-gray-700">Interactive Phone Voice Controls</p>
           </div>
         </div>
         

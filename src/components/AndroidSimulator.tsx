@@ -377,167 +377,203 @@ export default function AndroidSimulator({
 
   return (
     <div className="flex flex-col items-center justify-center">
-      {/* Visual Device Wrapper (The simulated Android hardware with neo-brutalist border) */}
-      <div className="relative w-[340px] h-[670px] bg-slate-950 rounded-[48px] shadow-[12px_12px_0px_0px_#000000] border-4 border-black flex flex-col p-3 select-none">
-        {/* Notch / Speaker bar */}
-        <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-40 h-6 bg-slate-950 rounded-b-2xl z-50 flex items-center justify-center border-b-2 border-black">
-          <div className="w-16 h-1 bg-slate-800 rounded-full mb-1" />
-          <div className="w-2.5 h-2.5 bg-slate-800 rounded-full ml-3 mb-1" />
-        </div>
+      {/* iPhone 15 Pro Device Frame */}
+      <div
+        className="relative w-[360px] h-[750px] rounded-[54px] flex flex-col p-[5px] select-none"
+        style={{
+          background: 'linear-gradient(160deg, #5A5A5E 0%, #3A3A3C 35%, #2C2C2E 70%, #1C1C1E 100%)',
+          boxShadow: '0 40px 100px rgba(0,0,0,0.75), 0 0 0 0.5px rgba(255,255,255,0.15), inset 0 1px 1px rgba(255,255,255,0.18), inset 0 -1px 1px rgba(0,0,0,0.5)',
+        }}
+      >
+        {/* Silent switch */}
+        <div className="absolute left-[-3px] top-[95px] w-[3px] h-7 rounded-l-sm" style={{ background: 'linear-gradient(to right, #2A2A2C, #4A4A4C)' }} />
+        {/* Volume Up */}
+        <div className="absolute left-[-3px] top-[138px] w-[3px] h-14 rounded-l-sm" style={{ background: 'linear-gradient(to right, #2A2A2C, #4A4A4C)' }} />
+        {/* Volume Down */}
+        <div className="absolute left-[-3px] top-[218px] w-[3px] h-14 rounded-l-sm" style={{ background: 'linear-gradient(to right, #2A2A2C, #4A4A4C)' }} />
+        {/* Power button */}
+        <div className="absolute right-[-3px] top-[160px] w-[3px] h-20 rounded-r-sm" style={{ background: 'linear-gradient(to left, #2A2A2C, #4A4A4C)' }} />
 
-        {/* Left Side Buttons (Volume keys) */}
-        <div className="absolute left-[-8px] top-28 w-2 h-12 bg-black rounded-l" />
-        <div className="absolute left-[-8px] top-44 w-2 h-16 bg-black rounded-l" />
-        
-        {/* Right Side Buttons (Power key) */}
-        <div className="absolute right-[-8px] top-36 w-2 h-16 bg-black rounded-r" />
+        {/* Screen */}
+        <div
+          className={`relative flex-1 rounded-[50px] overflow-hidden flex flex-col transition-colors duration-500 ${
+            themeMode === 'light' ? 'bg-[#F2F2F7] text-black' : 'bg-black text-white'
+          }`}
+          style={{ boxShadow: 'inset 0 0 0 0.5px rgba(255,255,255,0.08)' }}
+        >
+          {/* Status Bar */}
+          <div className={`relative h-14 flex items-end pb-2 px-6 justify-between ${themeMode === 'light' ? 'text-black' : 'text-white'}`}>
+            <span className="text-[13px] font-semibold" style={{ fontVariantNumeric: 'tabular-nums' }}>9:41</span>
 
-        {/* Screen container */}
-        <div className={`relative flex-1 w-full h-full rounded-[38px] overflow-hidden flex flex-col border-2 border-black transition-colors duration-300 ${
-          themeMode === 'light' 
-            ? 'bg-[#FFD600] text-black' 
-            : 'bg-black text-white'
-        }`}>
-          
-          {/* Status Bar Spacer */}
-          <div className="h-5 z-40" />
+            {/* Dynamic Island */}
+            <div
+              className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center justify-center gap-1.5 overflow-hidden"
+              style={{
+                width: isListening ? 140 : 120,
+                height: 34,
+                background: '#000',
+                borderRadius: 20,
+                transition: 'width 0.35s cubic-bezier(0.34,1.56,0.64,1)',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.6)',
+              }}
+            >
+              {isListening ? (
+                <>
+                  <Mic className="w-3 h-3 text-[#30D158] stroke-[2.5] flex-shrink-0" />
+                  <div className="flex items-center gap-0.5 h-4">
+                    {micWaves.slice(0, 5).map((h, i) => (
+                      <motion.span
+                        key={i}
+                        className="w-0.5 rounded-full bg-[#30D158]"
+                        animate={{ height: Math.max(Math.min(h * 0.45, 14), 2) }}
+                        transition={{ type: 'spring', stiffness: 300, damping: 15 }}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="w-2 h-2 rounded-full bg-[#1C1C1E]" />
+              )}
+            </div>
 
-          {/* App Bar (Flutter Styled Scaffold AppBar) */}
-          <div className={`h-14 px-4 flex items-center justify-between border-b-4 border-black ${
-            themeMode === 'light' 
-              ? 'bg-white shadow-2xs text-black' 
-              : 'bg-slate-900 border-slate-800 shadow-2xs text-white'
+            {/* Status icons */}
+            <div className="flex items-center gap-1.5">
+              {/* Signal bars */}
+              <div className="flex items-end gap-[2px]">
+                {[3, 5, 7, 9].map((h, i) => (
+                  <div key={i} className={`w-[3px] rounded-sm ${themeMode === 'light' ? 'bg-black' : 'bg-white'}`} style={{ height: h }} />
+                ))}
+              </div>
+              {/* WiFi icon */}
+              <svg viewBox="0 0 16 12" className={`w-4 h-3 ${themeMode === 'light' ? 'fill-black' : 'fill-white'}`}>
+                <path d="M8 2.4C5.6 2.4 3.4 3.4 1.8 5L3 6.2C4.3 4.9 6.1 4.1 8 4.1s3.7.8 5 2.1L14.2 5C12.6 3.4 10.4 2.4 8 2.4zm0 3.6C6.4 6 5 6.7 4 7.7L5.2 9c.7-.7 1.7-1.2 2.8-1.2s2.1.4 2.8 1.1L12 7.7C11 6.7 9.6 6 8 6zm0 3.2c-.9 0-1.7.4-2.3 1L8 13l2.3-2.8C9.7 9.6 8.9 9.2 8 9.2z"/>
+              </svg>
+              {/* Battery */}
+              <div className="flex items-center">
+                <div className={`w-6 h-[12px] rounded-[3px] border ${themeMode === 'light' ? 'border-black/40' : 'border-white/40'} relative p-[1.5px] flex items-center`}>
+                  <div className={`h-full rounded-[1.5px] ${themeMode === 'light' ? 'bg-black' : 'bg-white'}`} style={{ width: '75%' }} />
+                </div>
+                <div className={`w-[2px] h-[5px] rounded-r-sm ml-[1px] ${themeMode === 'light' ? 'bg-black/40' : 'bg-white/40'}`} />
+              </div>
+            </div>
+          </div>
+
+          {/* App Bar — iOS style */}
+          <div className={`px-5 py-2.5 flex items-center justify-between ${
+            themeMode === 'light' ? 'bg-[#F2F2F7]' : 'bg-black'
           }`}>
             <div className="flex items-center gap-2">
-              <div className={`w-4.5 h-4.5 rounded-full border-2 border-black ${currentColors.primary}`} />
-              <span className="font-black text-xs tracking-tighter uppercase font-sans">VoiceOp</span>
+              <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${
+                primaryColor === 'purple' ? 'bg-[#BF5AF2]' :
+                primaryColor === 'blue'   ? 'bg-[#007AFF]' :
+                primaryColor === 'green'  ? 'bg-[#30D158]' : 'bg-[#FF9F0A]'
+              }`}>
+                <Mic className="w-3 h-3 text-white stroke-[2.5]" />
+              </div>
+              <span className={`font-bold text-[15px] tracking-tight ${themeMode === 'light' ? 'text-black' : 'text-white'}`}>VoiceOp</span>
             </div>
-            
-            <div className="flex items-center gap-1">
-              {/* Quick toggle theme button */}
-              <button 
+            <div className="flex items-center gap-1.5">
+              <button
                 onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}
-                className={`p-1.5 rounded-lg border-2 border-black transition-all shadow-[2px_2px_0px_0px_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-                  themeMode === 'light' ? 'bg-white hover:bg-slate-100 text-black' : 'bg-slate-800 hover:bg-slate-700 text-white'
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all active:scale-90 ${
+                  themeMode === 'light' ? 'bg-[#E5E5EA] text-black' : 'bg-[#2C2C2E] text-white'
                 }`}
                 title="Toggle Light/Dark"
               >
-                {themeMode === 'light' ? <Moon className="w-4 h-4 stroke-[3.5]" /> : <Sun className="w-4 h-4 stroke-[3.5]" />}
+                {themeMode === 'light' ? <Moon className="w-3.5 h-3.5 stroke-[2]" /> : <Sun className="w-3.5 h-3.5 stroke-[2]" />}
               </button>
-              
-              {/* Settings menu anchor */}
-              <button 
+              <button
                 onClick={() => setShowSettings(!showSettings)}
-                className={`p-1.5 rounded-lg border-2 border-black transition-all shadow-[2px_2px_0px_0px_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-                  themeMode === 'light' ? 'bg-[#FFD600] text-black' : 'bg-slate-800 hover:bg-slate-700 text-white'
-                } ${showSettings ? 'bg-amber-300!' : ''}`}
-                title="UI Customization Settings"
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all active:scale-90 ${
+                  showSettings
+                    ? 'bg-[#007AFF] text-white'
+                    : themeMode === 'light' ? 'bg-[#E5E5EA] text-black' : 'bg-[#2C2C2E] text-white'
+                }`}
+                title="Settings"
               >
-                <Settings className="w-4 h-4 stroke-[3.5]" />
+                <Settings className="w-3.5 h-3.5 stroke-[2]" />
               </button>
             </div>
           </div>
 
-          {/* Inner Canvas Body */}
-          <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-4 relative">
-            
-            {/* Dynamic style info overlay when settings panel is hidden */}
+          {/* Hairline separator */}
+          <div className={`h-px ${themeMode === 'light' ? 'bg-black/10' : 'bg-white/10'}`} />
+
+          {/* Inner Canvas */}
+          <div className="flex-1 px-4 py-3 overflow-y-auto flex flex-col gap-3 relative">
+
+            {/* Active style chips */}
             {!showSettings && (
-              <div className={`text-[10px] px-2.5 py-1.5 rounded-xl border-2 border-black flex flex-wrap gap-2 items-center justify-between ${
-                themeMode === 'light' ? 'bg-white' : 'bg-slate-900'
-              } shadow-[2px_2px_0px_0px_#000000]`}>
-                <span className="text-black dark:text-slate-300 font-black uppercase">Active Flutter Styles:</span>
-                <div className="flex gap-1.5 font-mono text-[9px] font-bold">
-                  <span className="px-1 bg-white dark:bg-slate-800 rounded border border-black capitalize">{primaryColor}</span>
-                  <span className="px-1 bg-white dark:bg-slate-800 rounded border border-black capitalize">{fontFamily}</span>
-                  <span className="px-1 bg-white dark:bg-slate-800 rounded border border-black capitalize">{fontSize}</span>
+              <div className={`px-3 py-2 rounded-2xl flex flex-wrap gap-2 items-center justify-between ${
+                themeMode === 'light' ? 'bg-white/80' : 'bg-[#1C1C1E]'
+              }`} style={{ backdropFilter: 'blur(12px)' }}>
+                <span className={`text-[9px] font-semibold uppercase tracking-wider ${themeMode === 'light' ? 'text-[#8E8E93]' : 'text-[#636366]'}`}>Active Styles</span>
+                <div className="flex gap-1 text-[9px] font-mono">
+                  {[primaryColor, fontFamily, fontSize].map((v) => (
+                    <span key={v} className={`px-1.5 py-0.5 rounded-md capitalize ${themeMode === 'light' ? 'bg-[#F2F2F7] text-black' : 'bg-[#2C2C2E] text-white'}`}>{v}</span>
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* Quick settings overlay modal in Scaffold (Simulating a Flutter Drawer or BottomSheet) */}
+            {/* Settings Sheet */}
             <AnimatePresence>
               {showSettings && (
-                <motion.div 
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className={`p-3 rounded-2xl border-2 border-black flex flex-col gap-3 shadow-[4px_4px_0px_0px_#000000] ${
-                    themeMode === 'light' ? 'bg-white text-black' : 'bg-slate-900 text-white'
+                <motion.div
+                  initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  className={`p-4 rounded-3xl flex flex-col gap-4 ${
+                    themeMode === 'light' ? 'bg-white' : 'bg-[#1C1C1E]'
                   }`}
+                  style={{ boxShadow: themeMode === 'light' ? '0 4px 24px rgba(0,0,0,0.1)' : '0 4px 24px rgba(0,0,0,0.4)' }}
                 >
-                  <div className="flex items-center justify-between pb-1 border-b-2 border-black">
-                    <span className="text-xs font-black flex items-center gap-1.5 text-black dark:text-white uppercase tracking-wider">
-                      <Settings className="w-3 h-3 text-indigo-600 stroke-[3]" />
-                      Flutter Customizer
-                    </span>
-                    <button onClick={() => setShowSettings(false)} className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tighter hover:underline">
-                      Close
-                    </button>
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm font-semibold ${themeMode === 'light' ? 'text-black' : 'text-white'}`}>Customizer</span>
+                    <button onClick={() => setShowSettings(false)} className="text-[13px] font-semibold text-[#007AFF]">Done</button>
                   </div>
 
-                  {/* Fonts selector */}
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-wide">Font Style</label>
+                  {/* Font Style */}
+                  <div className="space-y-2">
+                    <label className={`text-[10px] font-semibold uppercase tracking-wider ${themeMode === 'light' ? 'text-[#8E8E93]' : 'text-[#636366]'}`}>Font Style</label>
                     <div className="grid grid-cols-3 gap-1.5">
                       {(['sans', 'serif', 'mono'] as FontFamily[]).map((f) => (
-                        <button
-                          key={f}
-                          onClick={() => setFontFamily(f)}
-                          className={`py-1 text-xs rounded-lg border-2 border-black capitalize transition-all font-black shadow-[2px_2px_0px_0px_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-                            fontFamily === f 
-                              ? currentColors.chipSelected
-                              : 'bg-white dark:bg-slate-800 text-black dark:text-white hover:bg-slate-100'
-                          }`}
-                        >
-                          {f}
-                        </button>
+                        <button key={f} onClick={() => setFontFamily(f)}
+                          className={`py-1.5 text-xs rounded-xl capitalize font-medium transition-all active:scale-95 ${
+                            fontFamily === f ? 'bg-[#007AFF] text-white' : themeMode === 'light' ? 'bg-[#F2F2F7] text-black' : 'bg-[#2C2C2E] text-white'
+                          }`}>{f}</button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Seed Color Selector */}
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-wide">Seed Accent Color</label>
-                    <div className="flex gap-2 items-center">
+                  {/* Color */}
+                  <div className="space-y-2">
+                    <label className={`text-[10px] font-semibold uppercase tracking-wider ${themeMode === 'light' ? 'text-[#8E8E93]' : 'text-[#636366]'}`}>Accent Color</label>
+                    <div className="flex gap-3 items-center">
                       {(['purple', 'blue', 'green', 'amber'] as PrimaryColor[]).map((c) => {
-                        const dots = {
-                          purple: 'bg-purple-600',
-                          blue: 'bg-blue-600',
-                          green: 'bg-emerald-600',
-                          amber: 'bg-[#FFD600]'
-                        };
+                        const bg = { purple: '#BF5AF2', blue: '#007AFF', green: '#30D158', amber: '#FF9F0A' };
                         return (
-                          <button
-                            key={c}
-                            onClick={() => setPrimaryColor(c)}
-                            className={`w-6 h-6 rounded-full flex items-center justify-center border-2 border-black transition-all ${dots[c]} ${
-                              primaryColor === c ? 'ring-2 ring-black scale-110 shadow-[2px_2px_0px_0px_#000000]' : ''
-                            }`}
+                          <button key={c} onClick={() => setPrimaryColor(c)}
+                            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all active:scale-90 ${primaryColor === c ? 'ring-2 ring-offset-2 ring-offset-white scale-110' : ''}`}
+                            style={{ background: bg[c], boxShadow: primaryColor === c ? `0 0 0 2px ${bg[c]}44` : 'none' }}
                           >
-                            {primaryColor === c && <Check className="w-3.5 h-3.5 text-white dark:text-black stroke-[3.5]" />}
+                            {primaryColor === c && <Check className="w-4 h-4 text-white stroke-[3]" />}
                           </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Font Size Selector */}
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-wide">Text Sizing</label>
+                  {/* Text Size */}
+                  <div className="space-y-2">
+                    <label className={`text-[10px] font-semibold uppercase tracking-wider ${themeMode === 'light' ? 'text-[#8E8E93]' : 'text-[#636366]'}`}>Text Size</label>
                     <div className="grid grid-cols-3 gap-1.5">
                       {(['small', 'medium', 'large'] as FontSize[]).map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => setFontSize(s)}
-                          className={`py-1 text-xs rounded-lg border-2 border-black capitalize transition-all font-black shadow-[2px_2px_0px_0px_#000000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-                            fontSize === s 
-                              ? currentColors.chipSelected
-                              : 'bg-white dark:bg-slate-800 text-black dark:text-white hover:bg-slate-100'
-                          }`}
-                        >
-                          {s}
-                        </button>
+                        <button key={s} onClick={() => setFontSize(s)}
+                          className={`py-1.5 text-xs rounded-xl capitalize font-medium transition-all active:scale-95 ${
+                            fontSize === s ? 'bg-[#007AFF] text-white' : themeMode === 'light' ? 'bg-[#F2F2F7] text-black' : 'bg-[#2C2C2E] text-white'
+                          }`}>{s}</button>
                       ))}
                     </div>
                   </div>
@@ -545,172 +581,128 @@ export default function AndroidSimulator({
               )}
             </AnimatePresence>
 
-            {/* Speech Canvas Box (The core text view area with neo-brutalist border and dropshadow) */}
-            <div className={`flex-1 min-h-[160px] p-4 rounded-3xl border-2 border-black transition-all duration-300 flex flex-col relative ${
-              themeMode === 'light' 
-                ? 'bg-white shadow-[6px_6px_0px_0px_#000000] text-black' 
-                : 'bg-slate-900 shadow-[6px_6px_0px_0px_#ffffff] text-white'
-            }`}>
-              
-              {/* Text Canvas Title */}
-              <div className="flex items-center justify-between mb-2 pb-1 border-b-2 border-black">
-                <span className="text-[10px] font-black uppercase tracking-wider text-black dark:text-white">Content Canvas</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleCopy}
-                    disabled={!text.trim()}
-                    className={`transition-all ${
-                      text.trim()
-                        ? 'text-black dark:text-white hover:text-emerald-500 cursor-pointer'
-                        : 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
-                    }`}
-                    title={copied ? "Copied!" : "Copy text"}
-                  >
-                    {copied ? (
-                      <Check className="w-3.5 h-3.5 stroke-[3] text-emerald-500 animate-bounce" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5 stroke-[2.5]" />
-                    )}
+            {/* Content Canvas */}
+            <div className={`flex-1 min-h-[160px] p-4 rounded-3xl transition-all duration-300 flex flex-col relative ${
+              themeMode === 'light' ? 'bg-white text-black' : 'bg-[#1C1C1E] text-white'
+            }`} style={{ boxShadow: themeMode === 'light' ? '0 2px 16px rgba(0,0,0,0.07)' : 'none' }}>
+
+              <div className="flex items-center justify-between mb-3 pb-2" style={{ borderBottom: `0.5px solid ${themeMode === 'light' ? '#E5E5EA' : '#38383A'}` }}>
+                <span className={`text-[10px] font-semibold uppercase tracking-wider ${themeMode === 'light' ? 'text-[#8E8E93]' : 'text-[#636366]'}`}>Content Canvas</span>
+                <div className="flex items-center gap-3">
+                  <button onClick={handleCopy} disabled={!text.trim()} title={copied ? 'Copied!' : 'Copy'}
+                    className={`transition-all active:scale-90 ${text.trim() ? 'text-[#007AFF]' : themeMode === 'light' ? 'text-[#C7C7CC]' : 'text-[#48484A]'}`}>
+                    {copied ? <Check className="w-3.5 h-3.5 stroke-[2.5]" /> : <Copy className="w-3.5 h-3.5 stroke-[2]" />}
                   </button>
-                  <button
-                    onClick={handleDownloadPDF}
-                    disabled={!text.trim()}
-                    className={`transition-all ${
-                      text.trim()
-                        ? 'text-black dark:text-white hover:text-amber-500 cursor-pointer'
-                        : 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
-                    }`}
-                    title="Download PDF"
-                  >
-                    <FileDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <button onClick={handleDownloadPDF} disabled={!text.trim()} title="Download PDF"
+                    className={`transition-all active:scale-90 ${text.trim() ? 'text-[#007AFF]' : themeMode === 'light' ? 'text-[#C7C7CC]' : 'text-[#48484A]'}`}>
+                    <FileDown className="w-3.5 h-3.5 stroke-[2]" />
                   </button>
-                  <button
-                    onClick={() => setText('')}
-                    disabled={!text.trim()}
-                    className={`transition-all ${
-                      text.trim()
-                        ? 'text-black dark:text-white hover:text-rose-500 cursor-pointer'
-                        : 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
-                    }`}
-                    title="Clear text"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <button onClick={() => setText('')} disabled={!text.trim()} title="Clear"
+                    className={`transition-all active:scale-90 ${text.trim() ? 'text-[#FF3B30]' : themeMode === 'light' ? 'text-[#C7C7CC]' : 'text-[#48484A]'}`}>
+                    <Trash2 className="w-3.5 h-3.5 stroke-[2]" />
                   </button>
                 </div>
               </div>
 
-              {/* Text input area */}
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="Tap the mic below and start speaking, or type/paste your content here to read it aloud..."
-                className={`w-full flex-1 bg-transparent resize-none focus:outline-none placeholder-slate-500 font-extrabold leading-relaxed ${
-                  fontStyles[fontFamily]
-                } ${fontSizeStyles[fontSize]}`}
+                placeholder="Tap the mic and start speaking, or type here..."
+                className={`w-full flex-1 bg-transparent resize-none focus:outline-none leading-relaxed ${
+                  themeMode === 'light' ? 'placeholder-[#C7C7CC] text-black' : 'placeholder-[#48484A] text-white'
+                } ${fontStyles[fontFamily]} ${fontSizeStyles[fontSize]}`}
               />
 
-              {/* Speech synthesis visual feedback overlay */}
               {speakActive && (
-                <div className="absolute bottom-3 left-3 right-3 py-1.5 px-2.5 bg-[#FFD600] text-black border-2 border-black rounded-xl text-[10px] font-black flex items-center justify-between animate-pulse shadow-[2px_2px_0px_0px_#000000]">
-                  <div className="flex items-center gap-1.5">
-                    <Volume2 className="w-3.5 h-3.5 stroke-[2.5]" />
-                    <span>Speaking out loud...</span>
-                  </div>
-                  <button 
-                    onClick={() => {
-                      if ('speechSynthesis' in window) {
-                        window.speechSynthesis.cancel();
-                        setSpeakActive(false);
-                      }
-                    }} 
-                    className="underline text-[9px] hover:text-slate-800 font-bold"
-                  >
-                    Stop
-                  </button>
+                <div className="absolute bottom-3 left-3 right-3 py-2 px-3 rounded-2xl text-[10px] font-semibold flex items-center justify-between text-white"
+                  style={{ background: '#30D158', boxShadow: '0 4px 16px rgba(48,209,88,0.4)' }}>
+                  <div className="flex items-center gap-1.5"><Volume2 className="w-3.5 h-3.5" /><span>Speaking...</span></div>
+                  <button onClick={() => { window.speechSynthesis.cancel(); setSpeakActive(false); }} className="underline text-[9px] opacity-80">Stop</button>
                 </div>
               )}
             </div>
 
-            {/* Active Speech Recognition Visual Waves */}
+            {/* Listening wave */}
             <AnimatePresence>
               {isListening && (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.9 }}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.92 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="flex flex-col items-center gap-1.5 py-1.5 bg-white border-2 border-black p-2 rounded-xl shadow-[3px_3px_0px_0px_#000000] dark:bg-slate-900"
+                  exit={{ opacity: 0, scale: 0.92 }}
+                  className={`flex flex-col items-center gap-1.5 py-2.5 px-4 rounded-2xl ${
+                    themeMode === 'light' ? 'bg-white' : 'bg-[#1C1C1E]'
+                  }`}
+                  style={{ boxShadow: themeMode === 'light' ? '0 2px 12px rgba(0,0,0,0.07)' : 'none' }}
                 >
                   <div className="flex items-center justify-center gap-1 h-6">
-                    {micWaves.map((h, index) => (
-                      <motion.span
-                        key={index}
-                        className={`w-1 rounded-full bg-black dark:bg-white`}
+                    {micWaves.map((h, i) => (
+                      <motion.span key={i} className="w-1 rounded-full bg-[#007AFF]"
                         animate={{ height: h }}
                         transition={{ type: 'spring', stiffness: 300, damping: 15 }}
                       />
                     ))}
                   </div>
-                  <span className="text-[10px] font-black text-rose-600 tracking-wider uppercase animate-pulse">
-                    Listening to Microphone...
-                  </span>
+                  <span className="text-[10px] font-semibold text-[#FF3B30] tracking-widest uppercase">Listening...</span>
                 </motion.div>
               )}
             </AnimatePresence>
 
-            {/* Render any recognition/mic error banner inside the device */}
+            {/* Error banner */}
             {recognitionError && (
-              <div className="p-2.5 bg-rose-50 border-2 border-black rounded-2xl flex items-start gap-2 shadow-[2px_2px_0px_0px_#000000]">
-                <Info className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
-                <p className="text-[10px] text-rose-700 font-extrabold leading-normal">{recognitionError}</p>
+              <div className={`p-3 rounded-2xl flex items-start gap-2 ${themeMode === 'light' ? 'bg-[#FFF2F1]' : 'bg-[#2C1C1C]'}`}>
+                <Info className="w-4 h-4 text-[#FF3B30] flex-shrink-0 mt-0.5" />
+                <p className="text-[10px] text-[#FF3B30] font-semibold leading-normal">{recognitionError}</p>
               </div>
             )}
 
-            {/* Text-to-Voice Primary Call to Action Button */}
+            {/* Read Aloud CTA */}
             <button
               onClick={handleSpeak}
               disabled={!text.trim()}
-              className={`w-full py-3.5 rounded-2xl text-black text-xs font-black shadow-[4px_4px_0px_0px_#000000] border-2 border-black transition-all duration-200 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none flex items-center justify-center gap-2 ${
-                text.trim() 
-                  ? `${currentColors.primary}` 
-                  : 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed opacity-55'
+              className={`w-full py-3 rounded-2xl text-[13px] font-semibold transition-all duration-200 flex items-center justify-center gap-2 active:scale-[0.97] ${
+                text.trim()
+                  ? 'text-white'
+                  : themeMode === 'light' ? 'bg-[#E5E5EA] text-[#C7C7CC]' : 'bg-[#2C2C2E] text-[#48484A]'
               }`}
+              style={text.trim() ? {
+                background: primaryColor === 'purple' ? '#BF5AF2' :
+                             primaryColor === 'blue'   ? '#007AFF' :
+                             primaryColor === 'green'  ? '#30D158' : '#FF9F0A',
+                boxShadow: `0 4px 20px ${
+                  primaryColor === 'purple' ? 'rgba(191,90,242,0.35)' :
+                  primaryColor === 'blue'   ? 'rgba(0,122,255,0.35)' :
+                  primaryColor === 'green'  ? 'rgba(48,209,88,0.35)' : 'rgba(255,159,10,0.35)'
+                }`
+              } : {}}
             >
-              <Volume2 className="w-4 h-4 stroke-[3]" />
-              <span>Read Aloud (Text-to-Voice)</span>
+              <Volume2 className="w-4 h-4 stroke-[2.5]" />
+              <span>Read Aloud</span>
             </button>
           </div>
 
-          {/* Scaffold Floating Action Button for Voice-to-Text */}
-          <div className="absolute bottom-5 right-5 z-50">
+          {/* Floating Mic FAB */}
+          <div className="absolute bottom-14 right-4 z-50">
             <motion.button
-              whileTap={{ scale: 0.95 }}
+              whileTap={{ scale: 0.9 }}
               onClick={toggleListening}
-              className={`w-14 h-14 rounded-full flex items-center justify-center border-4 border-black shadow-[4px_4px_0px_0px_#000000] text-black transition-colors duration-200 ${
-                isListening 
-                  ? 'bg-rose-500 hover:bg-rose-600' 
-                  : 'bg-[#FFD600] hover:bg-yellow-400'
-              }`}
+              className="w-14 h-14 rounded-full flex items-center justify-center transition-colors duration-200"
+              style={{
+                background: isListening ? '#FF3B30' : '#007AFF',
+                boxShadow: isListening
+                  ? '0 6px 24px rgba(255,59,48,0.45)'
+                  : '0 6px 24px rgba(0,122,255,0.45)',
+              }}
               title="Toggle Voice-to-Text"
             >
-              {isListening ? (
-                <MicOff className="w-6 h-6 stroke-[3] animate-pulse" />
-              ) : (
-                <Mic className="w-6 h-6 stroke-[3]" />
-              )}
+              {isListening
+                ? <MicOff className="w-6 h-6 stroke-[2.5] text-white animate-pulse" />
+                : <Mic className="w-6 h-6 stroke-[2.5] text-white" />}
             </motion.button>
           </div>
 
-          {/* Android Navigation Bar */}
-          <div className="h-10 flex justify-center items-center gap-16 z-40">
-            <div className={`w-3.5 h-3.5 border-2 border-black rounded-xs transform rotate-45 ${
-              themeMode === 'light' ? 'bg-black' : 'bg-slate-400'
-            }`} />
-            <div className={`w-4 h-4 rounded-full border-2 border-black ${
-              themeMode === 'light' ? 'bg-transparent' : 'bg-transparent'
-            }`} />
-            <div className={`w-3 h-3 rounded-xs border-2 border-black ${
-              themeMode === 'light' ? 'bg-black' : 'bg-slate-400'
-            }`} />
+          {/* iOS Home Indicator */}
+          <div className="h-8 flex items-center justify-center">
+            <div className={`w-32 h-[4px] rounded-full ${themeMode === 'light' ? 'bg-black/15' : 'bg-white/20'}`} />
           </div>
 
         </div>
