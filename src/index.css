@@ -1,6 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700;900&family=Syne:wght@700;800&family=JetBrains+Mono:wght@400;700;800&display=swap');
 @import "tailwindcss";
 
+/* Use .dark class on <html> for dark mode (not OS preference) */
+@custom-variant dark (&:is(.dark *));
+
 /* =====================================================
    GLOBAL ACCENT & FONT SCALE CUSTOM PROPERTIES
    ===================================================== */
