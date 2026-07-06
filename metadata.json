@@ -1,0 +1,6 @@
+{
+  "name": "VoiceOp",
+  "description": "An interactive Android simulator featuring real Voice-to-Text, Text-to-Voice speech synthesis, and style customization.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,24 @@
+name: voiceop
+description: A high-fidelity voice-activated interactive phone simulator app in Flutter.
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.6
+  provider: ^6.1.2
+  speech_to_text: ^6.6.2
+  google_fonts: ^6.2.1
+  flutter_spinkit: ^5.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
