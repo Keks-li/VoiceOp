@@ -6,6 +6,13 @@ export type FontFamily = 'sans' | 'serif' | 'mono';
 
 export type FontSize = 'small' | 'medium' | 'large';
 
+export interface TranscriptionHistoryEntry {
+  id: string;
+  text: string;
+  savedAt: string; // ISO string
+  wordCount: number;
+}
+
 export interface AppState {
   themeMode: ThemeMode;
   primaryColor: PrimaryColor;

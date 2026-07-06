@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Copy, Check, FileDown, Trash2, FileText, Info, UploadCloud, RefreshCw, FileUp, AlertCircle } from 'lucide-react';
+import { Copy, Check, FileDown, Trash2, FileText, Info, RefreshCw, FileUp, AlertCircle, History, RotateCcw, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import { TranscriptionHistoryEntry } from '../types';
 
 // Helper to dynamically load PDF.js from cdnjs
 const loadPdfJS = (): Promise<any> => {
@@ -48,19 +49,32 @@ const loadPdfJS = (): Promise<any> => {
 interface TextManagerProps {
   text: string;
   setText: (val: string) => void;
+  history: TranscriptionHistoryEntry[];
+  onSaveToHistory: (text: string) => void;
+  onDeleteHistory: (id: string) => void;
+  onRestoreEntry: (entry: TranscriptionHistoryEntry) => void;
 }
 
-export default function TextManager({ text, setText }: TextManagerProps) {
+export default function TextManager({ text, setText, history, onSaveToHistory, onDeleteHistory, onRestoreEntry }: TextManagerProps) {
   const [copied, setCopied] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [savedFeedback, setSavedFeedback] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Character and word calculations
   const charCount = text.length;
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
   const speakingTimeSecs = Math.ceil((wordCount / 150) * 60);
+
+  const handleSaveToHistory = () => {
+    if (!text.trim() || text === 'Hello! Speak or type something here...') return;
+    onSaveToHistory(text);
+    setSavedFeedback(true);
+    setTimeout(() => setSavedFeedback(false), 2000);
+  };
 
   const handleCopy = async () => {
     if (!text.trim()) return;
@@ -228,7 +242,7 @@ export default function TextManager({ text, setText }: TextManagerProps) {
         </div>
       </div>
 
-      {/* Live Text Area / Editor Sync */}
+      {/* Live Text Area + Save to History */}
       <div className="mb-4 relative">
         <textarea
           value={text}
@@ -236,15 +250,28 @@ export default function TextManager({ text, setText }: TextManagerProps) {
           placeholder="No transcription text saved yet. Speak to the microphone or start typing in the simulator..."
           className="w-full h-36 p-3 text-xs md:text-sm font-extrabold border-2 border-black rounded-xl bg-amber-50/50 dark:bg-slate-950 text-black dark:text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#FFD600] resize-none leading-relaxed"
         />
-        {text.trim() && (
-          <button
-            onClick={() => setText('')}
-            className="absolute bottom-3 right-3 p-1.5 bg-rose-500 hover:bg-rose-600 text-white border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all"
-            title="Clear saved text"
-          >
-            <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" />
-          </button>
-        )}
+        <div className="absolute bottom-3 right-3 flex gap-1.5">
+          {text.trim() && (
+            <button
+              onClick={handleSaveToHistory}
+              className={`p-1.5 border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all ${
+                savedFeedback ? 'bg-green-500 text-white' : 'bg-[#FFD600] text-black hover:bg-yellow-400'
+              }`}
+              title="Save to History"
+            >
+              {savedFeedback ? <Check className="w-3.5 h-3.5 stroke-[2.5]" /> : <History className="w-3.5 h-3.5 stroke-[2.5]" />}
+            </button>
+          )}
+          {text.trim() && (
+            <button
+              onClick={() => setText('')}
+              className="p-1.5 bg-rose-500 hover:bg-rose-600 text-white border-2 border-black rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all"
+              title="Clear saved text"
+            >
+              <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* PDF Uploader for Text-to-Voice */}
@@ -360,6 +387,75 @@ export default function TextManager({ text, setText }: TextManagerProps) {
         <p className="text-[10px] text-blue-700 dark:text-blue-300 font-extrabold leading-normal">
           Any text you speak to the microphone or type inside the active mobile screen is synced here instantly and auto-cached. Clearing it resets the cache.
         </p>
+      </div>
+
+      {/* Transcription History */}
+      <div className="mt-4">
+        <button
+          onClick={() => setShowHistory((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-2.5 bg-[#FFFBEB] dark:bg-slate-950 border-2 border-black rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:bg-amber-50 transition-all active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+        >
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 stroke-[2.5] text-black dark:text-white" />
+            <span className="text-xs font-black uppercase tracking-wider text-black dark:text-white">Last 5 Transcriptions</span>
+            {history.length > 0 && (
+              <span className="bg-black text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">{history.length}</span>
+            )}
+          </div>
+          {showHistory
+            ? <ChevronUp className="w-4 h-4 stroke-[2.5] text-black dark:text-white" />
+            : <ChevronDown className="w-4 h-4 stroke-[2.5] text-black dark:text-white" />}
+        </button>
+
+        {showHistory && (
+          <div className="mt-2 flex flex-col gap-2">
+            {history.length === 0 ? (
+              <div className="text-center py-6 text-xs font-bold text-gray-400 dark:text-slate-600 border-2 border-dashed border-gray-200 dark:border-slate-800 rounded-xl">
+                No history yet — click the <History className="w-3 h-3 inline mx-0.5" /> icon to save a transcription.
+              </div>
+            ) : (
+              history.map((entry, idx) => {
+                const date = new Date(entry.savedAt);
+                const label = date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const preview = entry.text.trim().slice(0, 80) + (entry.text.length > 80 ? '…' : '');
+                return (
+                  <div
+                    key={entry.id}
+                    className="p-3 bg-white dark:bg-slate-950 border-2 border-black rounded-xl shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex flex-col gap-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-black bg-black text-white px-1.5 py-0.5 rounded-full">#{idx + 1}</span>
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-gray-500 dark:text-slate-400">
+                          <Clock className="w-2.5 h-2.5" />
+                          {label}
+                        </div>
+                        <span className="text-[9px] font-black text-gray-400">· {entry.wordCount}w</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => onRestoreEntry(entry)}
+                          className="p-1 bg-[#FFD600] text-black border-2 border-black rounded-lg hover:bg-yellow-400 transition-all active:translate-y-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                          title="Restore this transcription"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5 stroke-[3]" />
+                        </button>
+                        <button
+                          onClick={() => onDeleteHistory(entry.id)}
+                          className="p-1 bg-rose-500 text-white border-2 border-black rounded-lg hover:bg-rose-600 transition-all active:translate-y-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                          title="Delete entry"
+                        >
+                          <Trash2 className="w-2.5 h-2.5 stroke-[3]" />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-[11px] font-extrabold text-black dark:text-white leading-relaxed line-clamp-2">{preview}</p>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

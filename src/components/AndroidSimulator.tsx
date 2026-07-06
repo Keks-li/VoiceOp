@@ -20,6 +20,7 @@ interface AndroidSimulatorProps {
   text: string;
   setText: (val: string) => void;
   onCommandDetected: (command: string) => void;
+  onTranscriptionComplete?: (text: string) => void;
 }
 
 export default function AndroidSimulator({
@@ -47,6 +48,10 @@ export default function AndroidSimulator({
   const [simulateCommandText, setSimulateCommandText] = useState<string>('');
 
   const recognitionRef = useRef<any>(null);
+  // Accumulates all finalized speech chunks within a single recording session
+  const committedTextRef = useRef<string>('');
+  // True only while the user has actively pressed Start — gates auto-restart
+  const sessionActiveRef = useRef<boolean>(false);
 
   // Voice waves animation when listening
   useEffect(() => {
@@ -79,33 +84,47 @@ export default function AndroidSimulator({
         console.error('Speech recognition error', event);
         if (event.error === 'not-allowed') {
           setRecognitionError('Permission Denied. Please enable microphone permissions in your browser settings.');
+          sessionActiveRef.current = false;
+        } else if (event.error === 'no-speech' || event.error === 'audio-capture') {
+          // Non-fatal — browser will fire onend and we will auto-restart below
         } else {
           setRecognitionError(`Recognition error: ${event.error}`);
+          sessionActiveRef.current = false;
         }
-        setIsListening(false);
+        if (!sessionActiveRef.current) setIsListening(false);
       };
 
       rec.onend = () => {
-        setIsListening(false);
+        // If the user is still actively recording, auto-restart to bridge the pause
+        if (sessionActiveRef.current) {
+          try { rec.start(); } catch (_) {}
+        } else {
+          setIsListening(false);
+        }
       };
 
       rec.onresult = (event: any) => {
-        let finalTranscript = '';
+        let newFinals = '';
         let interimTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
+            newFinals += event.results[i][0].transcript;
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
 
-        const spokenText = (finalTranscript || interimTranscript).trim();
-        if (spokenText) {
-          setText(spokenText);
-          parseSpeechCommands(spokenText);
+        // Append any new finals to our committed buffer
+        if (newFinals) {
+          committedTextRef.current = (committedTextRef.current + ' ' + newFinals).trimStart();
+          // Parse commands from the new final chunk only
+          parseSpeechCommands(newFinals);
         }
+
+        // Display committed text + live interim text
+        const displayed = (committedTextRef.current + (interimTranscript ? ' ' + interimTranscript : '')).trim();
+        if (displayed) setText(displayed);
       };
 
       recognitionRef.current = rec;
@@ -114,28 +133,37 @@ export default function AndroidSimulator({
     }
 
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      sessionActiveRef.current = false;
+      if (recognitionRef.current) recognitionRef.current.stop();
     };
   }, []);
 
   const toggleListening = () => {
     if (!recognitionRef.current) {
-      // Browser doesn't support mic
       setRecognitionError('Speech recognition is not available in your browser. Use the Command Simulation panel below to test!');
       return;
     }
 
-    if (isListening) {
+    if (isListening || sessionActiveRef.current) {
+      // User explicitly stops — finalize
+      sessionActiveRef.current = false;
       recognitionRef.current.stop();
       setIsListening(false);
+      // Auto-save the completed session to history
+      const finalText = committedTextRef.current.trim();
+      if (finalText && onTranscriptionComplete) {
+        onTranscriptionComplete(finalText);
+      }
     } else {
+      // Start a fresh recording session
+      committedTextRef.current = '';
+      setText('');
+      sessionActiveRef.current = true;
       try {
-        setText(''); // clear text on new recording session
         recognitionRef.current.start();
       } catch (err) {
         console.error(err);
+        sessionActiveRef.current = false;
         setIsListening(false);
       }
     }

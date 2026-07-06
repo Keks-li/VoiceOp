@@ -10,7 +10,16 @@ import {
 import AndroidSimulator from './components/AndroidSimulator';
 import VoiceCommandGuide from './components/VoiceCommandGuide';
 import TextManager from './components/TextManager';
-import { ThemeMode, PrimaryColor, FontFamily, FontSize } from './types';
+import { ThemeMode, PrimaryColor, FontFamily, FontSize, TranscriptionHistoryEntry } from './types';
+
+const HISTORY_KEY = 'voiceop_transcription_history';
+
+const loadHistory = (): TranscriptionHistoryEntry[] => {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+};
 
 export default function App() {
   // App States
@@ -29,6 +38,34 @@ export default function App() {
     setTextState(val);
     localStorage.setItem('voiceop_transcribed_text', val);
   };
+
+  // Shared transcription history (max 5 entries, persisted)
+  const [history, setHistory] = useState<TranscriptionHistoryEntry[]>(loadHistory);
+
+  const pushToHistory = (raw: string) => {
+    if (!raw.trim()) return;
+    const wc = raw.trim().split(/\s+/).length;
+    const entry: TranscriptionHistoryEntry = {
+      id: Date.now().toString(),
+      text: raw,
+      savedAt: new Date().toISOString(),
+      wordCount: wc,
+    };
+    setHistory((prev) => {
+      const updated = [entry, ...prev].slice(0, 5);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const deleteHistoryEntry = (id: string) => {
+    setHistory((prev) => {
+      const updated = prev.filter((e) => e.id !== id);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   const [lastDetectedCommand, setLastDetectedCommand] = useState<string | null>(null);
 
   const handleCommandDetected = (command: string) => {
@@ -77,6 +114,7 @@ export default function App() {
             text={text}
             setText={setText}
             onCommandDetected={handleCommandDetected}
+            onTranscriptionComplete={pushToHistory}
           />
         </div>
 
@@ -84,7 +122,14 @@ export default function App() {
         <div className="lg:col-span-7 space-y-6">
 
           {/* Saved Transcription Manager */}
-          <TextManager text={text} setText={setText} />
+          <TextManager
+            text={text}
+            setText={setText}
+            history={history}
+            onSaveToHistory={pushToHistory}
+            onDeleteHistory={deleteHistoryEntry}
+            onRestoreEntry={(entry) => setText(entry.text)}
+          />
 
           {/* Voice Command Reference Guide */}
           <VoiceCommandGuide lastDetectedCommand={lastDetectedCommand} />
@@ -108,3 +153,4 @@ export default function App() {
     </div>
   );
 }
+
