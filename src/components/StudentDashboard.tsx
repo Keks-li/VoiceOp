@@ -81,7 +81,7 @@ export default function StudentDashboard({
   }, [selectedCourse, selectedWeekIndex]);
 
   // TTS Read-Aloud logic (incorporates delay to bypass Chromium cancel-speak bugs)
-  const speak = (textToSpeak: string, section: 'main' | 'simplified' | 'chat', messageId: string | null = null) => {
+  const speak = (textToSpeak: string, section: string, messageId: string | null = null) => {
     if (!synthRef.current) return;
 
     if (isPlayingTts && ttsSection === section && activeSpeechMessageId === messageId) {
@@ -538,9 +538,31 @@ export default function StudentDashboard({
                   <div className="space-y-4">
                     {selectedWeek.quiz.map((q, qIdx) => (
                       <div key={qIdx} className="space-y-2">
-                        <p className="text-xs font-black">
-                          {qIdx + 1}. {q.question}
-                        </p>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-black">
+                            {qIdx + 1}. {q.question}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const text = `Question ${qIdx + 1}: ${q.question}. Options are: ` + 
+                                q.options.map((opt, oIdx) => `${String.fromCharCode(65 + oIdx)}. ${opt}`).join(", ");
+                              speak(text, `quiz-${qIdx}`);
+                            }}
+                            className={`p-1 border border-black rounded-lg transition-all flex items-center justify-center cursor-pointer ${
+                              isPlayingTts && ttsSection === `quiz-${qIdx}`
+                                ? 'bg-rose-350 text-black'
+                                : 'bg-[#FFD600] text-black hover:bg-[#FEE21E]'
+                            }`}
+                            title="Read Question Out Loud"
+                          >
+                            {isPlayingTts && ttsSection === `quiz-${qIdx}` ? (
+                              <VolumeX className="w-3 h-3" />
+                            ) : (
+                              <Volume2 className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
                         
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {q.options.map((opt, oIdx) => {

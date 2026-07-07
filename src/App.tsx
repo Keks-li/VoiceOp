@@ -711,8 +711,8 @@ export default function App() {
     } catch (err: any) {
       console.error('Error in voice command handler:', err);
       if (err.message?.includes('429') || err.message?.toLowerCase().includes('quota') || err.status === 429) {
-        setVoiceStatus('Gemini rate limit exceeded. Please wait 60s.');
-        speakConfirmation('Gemini rate limit exceeded. Please try again in one minute.');
+        setVoiceStatus('Rate limit exceeded. Please wait 3s.');
+        speakConfirmation('Rate limit exceeded. Please try again in 3 seconds.');
       } else {
         setVoiceStatus('Failed to process voice command.');
       }

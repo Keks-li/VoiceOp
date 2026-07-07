@@ -173,8 +173,18 @@ export async function chatWithStudyBuddy(
 /**
  * Parses a voice transcript into a structured navigation or accessibility command using Gemini.
  */
+function getXaiApiKey(): string {
+  const metaEnv = typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : {};
+  const procEnv = typeof process !== 'undefined' && process.env ? process.env : {};
+  return procEnv.XAI_API_KEY || procEnv.VITE_XAI_API_KEY || metaEnv.XAI_API_KEY || metaEnv.VITE_XAI_API_KEY || '';
+}
+
+/**
+ * Parses a voice transcript into a structured navigation or accessibility command.
+ * Connects to Grok AI if the API key is set; otherwise falls back to Gemini.
+ */
 export async function parseVoiceCommand(transcript: string): Promise<ParsedVoiceCommand> {
-  const ai = getGeminiClient();
+  const xaiKey = getXaiApiKey();
 
   const prompt = `You are a voice command intent classifier for the VoiceOp e-learning platform.
   Analyze the spoken speech input and map it to the correct command using semantic reasoning. Speech recognition transcripts can have spelling errors, homophones (e.g. "be" instead of "B", "one" instead of "1"), or informal phrasings. Map them intelligently!
@@ -229,22 +239,82 @@ export async function parseVoiceCommand(transcript: string): Promise<ParsedVoice
     }
   }`;
 
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
-
-    const text = response.text?.trim() || '{}';
-    // Clean up if the API wrapped it in backticks despite instructions
-    const cleanText = text.replace(/^```json\s*/i, '').replace(/```$/, '');
-    return JSON.parse(cleanText) as ParsedVoiceCommand;
-  } catch (error) {
-    console.error('Error parsing voice command with Gemini:', error);
-    return { command: 'unknown' };
+  const providers = [];
+  if (xaiKey) {
+    providers.push('grok');
   }
+  providers.push('gemini');
+
+  let lastError: any = null;
+
+  for (const provider of providers) {
+    try {
+      if (provider === 'grok') {
+        console.log('Parsing voice command using Grok AI...');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+        const response = await fetch('https://api.x.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${xaiKey}`,
+          },
+          body: JSON.stringify({
+            messages: [
+              {
+                role: 'system',
+                content: 'You are a precise voice command parser for an e-learning platform. Return JSON strictly matching the requested format.',
+              },
+              {
+                role: 'user',
+                content: prompt,
+              },
+            ],
+            model: 'grok-beta',
+            temperature: 0,
+            stream: false,
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const result = await response.json();
+          const text = result.choices?.[0]?.message?.content?.trim() || '{}';
+          const cleanText = text.replace(/^```json\s*/i, '').replace(/```$/, '');
+          return JSON.parse(cleanText) as ParsedVoiceCommand;
+        } else {
+          const errText = await response.text();
+          throw new Error(`Grok status ${response.status}: ${errText}`);
+        }
+      } else if (provider === 'gemini') {
+        console.log('Parsing voice command using Gemini...');
+        const ai = getGeminiClient();
+        
+        const geminiCall = ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+          },
+        });
+
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Gemini API Timeout')), 2500)
+        );
+
+        const response = await Promise.race([geminiCall, timeoutPromise]) as any;
+        const text = response.text?.trim() || '{}';
+        const cleanText = text.replace(/^```json\s*/i, '').replace(/```$/, '');
+        return JSON.parse(cleanText) as ParsedVoiceCommand;
+      }
+    } catch (err: any) {
+      console.warn(`Voice parser provider "${provider}" failed:`, err.message || err);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('All voice parsing providers failed');
 }
 
