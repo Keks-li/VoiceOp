@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Sparkles, BookOpen, Settings, LogOut, User as UserIcon, LogIn, Mic, RefreshCw, Key, Sun, Moon
+  Sparkles, BookOpen, Settings, LogOut, User as UserIcon, LogIn, Mic, RefreshCw, Key, Sun, Moon, UserPlus, Loader2
 } from 'lucide-react';
 import { ThemeMode, PrimaryColor, FontFamily, FontSize, User, Course, Assignment, AssignmentSubmission } from './types';
 import AccessibilityControls from './components/AccessibilityControls';
 import InstructorDashboard from './components/InstructorDashboard';
 import StudentDashboard from './components/StudentDashboard';
+import { supabase } from './lib/supabase';
+import * as db from './lib/db';
 
 const COURSES_STORAGE_KEY = 'voiceop_elearning_courses';
 const USER_STORAGE_KEY = 'voiceop_elearning_user';
 const ASSIGNMENTS_STORAGE_KEY = 'voiceop_elearning_assignments';
 const SUBMISSIONS_STORAGE_KEY = 'voiceop_elearning_submissions';
+
 
 // Mock initial courses
 const INITIAL_COURSES: Course[] = [
@@ -240,26 +243,15 @@ export default function App() {
 
   // UI States
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem(USER_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Courses Dataset
-  const [courses, setCourses] = useState<Course[]>(() => {
-    const saved = localStorage.getItem(COURSES_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : INITIAL_COURSES;
-  });
+  const [courses, setCourses] = useState<Course[]>(INITIAL_COURSES);
 
   // Assignments & Submissions
-  const [assignments, setAssignments] = useState<Assignment[]>(() => {
-    const saved = localStorage.getItem(ASSIGNMENTS_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [submissions, setSubmissions] = useState<AssignmentSubmission[]>(() => {
-    const saved = localStorage.getItem(SUBMISSIONS_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [submissions, setSubmissions] = useState<AssignmentSubmission[]>([]);
 
   // Login Form input states (Manual)
   const [loginEmail, setLoginEmail] = useState('');
@@ -267,28 +259,109 @@ export default function App() {
   const [loginRole, setLoginRole] = useState<'student' | 'instructor'>('student');
   const [loginError, setLoginError] = useState<string | null>(null);
 
+  // Sign Up inputs
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [signupName, setSignupName] = useState('');
 
-
-  // Save courses and user changes
+  // Listen to Supabase auth changes
   useEffect(() => {
-    localStorage.setItem(COURSES_STORAGE_KEY, JSON.stringify(courses));
-  }, [courses]);
+    let active = true;
 
-  useEffect(() => {
-    localStorage.setItem(ASSIGNMENTS_STORAGE_KEY, JSON.stringify(assignments));
-  }, [assignments]);
+    async function checkSession() {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) throw error;
 
-  useEffect(() => {
-    localStorage.setItem(SUBMISSIONS_STORAGE_KEY, JSON.stringify(submissions));
-  }, [submissions]);
-
-
-  useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem(USER_STORAGE_KEY);
+        if (session?.user) {
+          const profile = await db.fetchProfile(session.user.id);
+          if (profile && active) {
+            setCurrentUser({
+              id: session.user.id,
+              name: profile.name,
+              email: session.user.email || '',
+              role: profile.role,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Session restore error:', err);
+      } finally {
+        if (active) setIsLoading(false);
+      }
     }
+
+    checkSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        setIsLoading(true);
+        try {
+          const profile = await db.fetchProfile(session.user.id);
+          if (profile && active) {
+            setCurrentUser({
+              id: session.user.id,
+              name: profile.name,
+              email: session.user.email || '',
+              role: profile.role,
+            });
+          }
+        } catch (err) {
+          console.error('Profile fetch error:', err);
+        } finally {
+          if (active) setIsLoading(false);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        if (active) {
+          setCurrentUser(null);
+          setCourses(INITIAL_COURSES);
+          setAssignments([]);
+          setSubmissions([]);
+          setIsLoading(false);
+        }
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Fetch courses, assignments, and submissions when user logs in
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let active = true;
+    async function loadData() {
+      try {
+        const fetchedCourses = await db.fetchCourses();
+        if (active) {
+          // If courses database is empty, seed initial mock courses (if instructor)
+          if (fetchedCourses.length === 0 && currentUser.role === 'instructor') {
+            for (const course of INITIAL_COURSES) {
+              await db.upsertCourse(course);
+            }
+            const seeded = await db.fetchCourses();
+            if (active) setCourses(seeded);
+          } else {
+            setCourses(fetchedCourses.length > 0 ? fetchedCourses : INITIAL_COURSES);
+          }
+        }
+
+        const fetchedAssignments = await db.fetchAssignments();
+        if (active) setAssignments(fetchedAssignments);
+
+        const fetchedSubmissions = await db.fetchSubmissions(currentUser.id, currentUser.role);
+        if (active) setSubmissions(fetchedSubmissions);
+      } catch (err) {
+        console.error('Error fetching data from Supabase:', err);
+      }
+    }
+
+    loadData();
+    return () => {
+      active = false;
+    };
   }, [currentUser]);
 
   // Accessibility Desk settings application
@@ -357,92 +430,149 @@ export default function App() {
   };
 
   // Auth Operations
-  const handleLogin = (role: 'student' | 'instructor', email = '', password = '') => {
-    const finalEmail = email || (role === 'student' ? 'student@voiceop.edu' : 'instructor@voiceop.edu');
-    const name = role === 'student' ? 'Alex Student' : 'Sarah Jenkins';
-    
-    const user: User = {
-      id: role === 'student' ? 'u_student' : 'u_instructor',
-      name,
-      email: finalEmail,
-      role
-    };
-
-    setCurrentUser(user);
-    setLoginError(null);
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setCurrentUser(null);
+      setLoginEmail('');
+      setLoginPassword('');
+    } catch (err: any) {
+      setLoginError(err.message || 'Logout failed');
+    }
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setLoginEmail('');
-    setLoginPassword('');
-  };
-
-  const handleManualLoginSubmit = (e: React.FormEvent) => {
+  const handleManualLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginError(null);
+
     if (!loginEmail.trim() || !loginPassword.trim()) {
       setLoginError('Credentials cannot be empty');
       return;
     }
-    
-    // Simplistic auth verification for demo
-    if (loginRole === 'instructor') {
-      if (loginEmail === 'instructor@voiceop.edu' && loginPassword === 'admin123') {
-        handleLogin('instructor', loginEmail);
+
+    setIsLoading(true);
+    try {
+      if (authMode === 'login') {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: loginEmail,
+          password: loginPassword,
+        });
+        if (error) throw error;
       } else {
-        setLoginError('Invalid instructor email or password. Use: instructor@voiceop.edu / admin123');
+        // Sign Up Mode
+        if (!signupName.trim()) {
+          setLoginError('Name cannot be empty');
+          setIsLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase.auth.signUp({
+          email: loginEmail,
+          password: loginPassword,
+          options: {
+            data: {
+              name: signupName,
+              role: loginRole,
+            }
+          }
+        });
+
+        if (error) throw error;
+
+        if (data.user) {
+          // Trigger role update locally
+          setCurrentUser({
+            id: data.user.id,
+            name: signupName,
+            email: loginEmail,
+            role: loginRole,
+          });
+        }
       }
-    } else {
-      if (loginEmail === 'student@voiceop.edu' && loginPassword === 'learn123') {
-        handleLogin('student', loginEmail);
-      } else {
-        setLoginError('Invalid student email or password. Use: student@voiceop.edu / learn123');
-      }
+    } catch (err: any) {
+      setLoginError(err.message || 'Authentication failed');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   // Add / Delete / Edit Course outline callbacks
-  const handleAddCourse = (newCourse: Course) => {
-    setCourses((prev) => [newCourse, ...prev]);
+  const handleAddCourse = async (newCourse: Course) => {
+    try {
+      await db.upsertCourse(newCourse);
+      setCourses((prev) => [newCourse, ...prev]);
+    } catch (err: any) {
+      alert('Failed to add course: ' + err.message);
+    }
   };
 
-  const handleDeleteCourse = (courseId: string) => {
-    setCourses((prev) => prev.filter((c) => c.id !== courseId));
+  const handleDeleteCourse = async (courseId: string) => {
+    try {
+      await db.deleteCourse(courseId);
+      setCourses((prev) => prev.filter((c) => c.id !== courseId));
+    } catch (err: any) {
+      alert('Failed to delete course: ' + err.message);
+    }
   };
 
-  const handleUpdateCourse = (updatedCourse: Course) => {
-    setCourses((prev) => prev.map((c) => (c.id === updatedCourse.id ? updatedCourse : c)));
+  const handleUpdateCourse = async (updatedCourse: Course) => {
+    try {
+      await db.upsertCourse(updatedCourse);
+      setCourses((prev) => prev.map((c) => (c.id === updatedCourse.id ? updatedCourse : c)));
+    } catch (err: any) {
+      alert('Failed to update course: ' + err.message);
+    }
   };
 
   // ── Assignment CRUD ──────────────────────────────────────────────────────
-  const handleAddAssignment = (data: Omit<Assignment, 'id' | 'createdAt'>) => {
+  const handleAddAssignment = async (data: Omit<Assignment, 'id' | 'createdAt'>) => {
     const newAssignment: Assignment = {
       ...data,
       id: `assignment_${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
-    setAssignments((prev) => [newAssignment, ...prev]);
+    try {
+      await db.upsertAssignment(newAssignment);
+      setAssignments((prev) => [newAssignment, ...prev]);
+    } catch (err: any) {
+      alert('Failed to add assignment: ' + err.message);
+    }
   };
 
-  const handleDeleteAssignment = (assignmentId: string) => {
-    setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
-    // Also remove all submissions for this assignment
-    setSubmissions((prev) => prev.filter((s) => s.assignmentId !== assignmentId));
+  const handleDeleteAssignment = async (assignmentId: string) => {
+    try {
+      await db.deleteAssignment(assignmentId);
+      setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+      setSubmissions((prev) => prev.filter((s) => s.assignmentId !== assignmentId));
+    } catch (err: any) {
+      alert('Failed to delete assignment: ' + err.message);
+    }
   };
 
-  const handleStudentSubmit = (submission: Omit<AssignmentSubmission, 'id' | 'submittedAt'>) => {
+  const handleStudentSubmit = async (submission: Omit<AssignmentSubmission, 'id' | 'submittedAt'>) => {
     const newSub: AssignmentSubmission = {
       ...submission,
       id: `sub_${Date.now()}`,
       submittedAt: new Date().toISOString(),
     };
-    setSubmissions((prev) => [newSub, ...prev]);
+    try {
+      await db.insertSubmission(newSub);
+      setSubmissions((prev) => [newSub, ...prev]);
+    } catch (err: any) {
+      alert('Failed to submit assignment: ' + err.message);
+    }
   };
 
-  const handleGradeSubmission = (submissionId: string, grade: number, feedback: string) => {
-    setSubmissions((prev) =>
-      prev.map((s) => s.id === submissionId ? { ...s, grade, feedback } : s)
-    );
+  const handleGradeSubmission = async (submissionId: string, grade: number, feedback: string) => {
+    try {
+      await db.updateGrade(submissionId, grade, feedback);
+      setSubmissions((prev) =>
+        prev.map((s) => s.id === submissionId ? { ...s, grade, feedback } : s)
+      );
+    } catch (err: any) {
+      alert('Failed to grade submission: ' + err.message);
+    }
   };
 
   // Font Family class mappings
@@ -463,6 +593,19 @@ export default function App() {
   };
 
   const activeColorBorder = colorBorders[primaryColor];
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center font-sans" style={{ background: themeMode === 'dark' ? '#0F172A' : '#FFFBEB', color: themeMode === 'dark' ? '#F1F5F9' : '#09090B' }}>
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-10 h-10 animate-spin" style={{ color: 'var(--accent)' }} />
+          <p className="text-xs font-black uppercase tracking-wider text-gray-500 dark:text-slate-400">
+            Initializing Classroom Studio...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen flex flex-col antialiased transition-colors duration-300 ${activeFontClass}`}
@@ -642,49 +785,98 @@ export default function App() {
             />
           )
         ) : (
-          /* SIGN IN SCREEN */
+          /* SIGN IN / SIGN UP SCREEN */
           <div className="max-w-md w-full mx-auto my-auto p-6 md:p-8 bg-white dark:bg-slate-900 border-4 border-black rounded-3xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col gap-6">
             
             <div className="text-center space-y-1.5">
               <span className="inline-block p-3 bg-[#FFD600] text-black border-2 border-black rounded-2xl shadow-[3px_3px_0px_0px_#000]">
-                <LogIn className="w-6 h-6 stroke-[2.5]" />
+                {authMode === 'login' ? <LogIn className="w-6 h-6 stroke-[2.5]" /> : <UserPlus className="w-6 h-6 stroke-[2.5]" />}
               </span>
               <h2 className="text-xl font-black uppercase tracking-tight text-black dark:text-white">
-                Access Classroom Studio
+                {authMode === 'login' ? 'Access Classroom Studio' : 'Create an Account'}
               </h2>
               <p className="text-xs text-gray-500 dark:text-slate-400 font-bold">
-                Log in to write coursework or browse classes hands-free.
+                {authMode === 'login' 
+                  ? 'Log in to write coursework or browse classes hands-free.' 
+                  : 'Register a new student or instructor profile to begin.'}
               </p>
             </div>
 
-            {/* Toggle Student / Instructor buttons */}
+            {/* Toggle Log In / Create Account buttons */}
             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-950 border-2 border-black rounded-xl">
               <button
                 type="button"
-                onClick={() => { setLoginRole('student'); setLoginError(null); }}
+                onClick={() => { setAuthMode('login'); setLoginError(null); }}
                 className={`py-2 text-xs font-black uppercase rounded-lg border transition-all ${
-                  loginRole === 'student'
+                  authMode === 'login'
                     ? 'bg-black text-white border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
                     : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
                 }`}
               >
-                Student Hub
+                Sign In
               </button>
               <button
                 type="button"
-                onClick={() => { setLoginRole('instructor'); setLoginError(null); }}
+                onClick={() => { setAuthMode('signup'); setLoginError(null); }}
                 className={`py-2 text-xs font-black uppercase rounded-lg border transition-all ${
-                  loginRole === 'instructor'
+                  authMode === 'signup'
                     ? 'bg-black text-white border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
                     : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
                 }`}
               >
-                Teacher Studio
+                Register
               </button>
+            </div>
+
+            {/* Toggle Student / Instructor buttons */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
+                Select Your Role
+              </label>
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-950 border-2 border-black rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => { setLoginRole('student'); }}
+                  className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${
+                    loginRole === 'student'
+                      ? 'bg-black text-white border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
+                      : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
+                  }`}
+                >
+                  Student Hub
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setLoginRole('instructor'); }}
+                  className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${
+                    loginRole === 'instructor'
+                      ? 'bg-black text-white border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
+                      : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
+                  }`}
+                >
+                  Teacher Studio
+                </button>
+              </div>
             </div>
 
             {/* Login form */}
             <form onSubmit={handleManualLoginSubmit} className="space-y-4">
+              {authMode === 'signup' && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={loginRole === 'student' ? 'Alex Student' : 'Sarah Jenkins'}
+                    value={signupName}
+                    onChange={(e) => setSignupName(e.target.value)}
+                    className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                    required
+                  />
+                </div>
+              )}
+
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
                   Email Address
@@ -695,6 +887,7 @@ export default function App() {
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
                   className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                  required
                 />
               </div>
 
@@ -708,6 +901,7 @@ export default function App() {
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
                   className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                  required
                 />
               </div>
 
@@ -723,7 +917,7 @@ export default function App() {
                   type="submit"
                   className="w-full py-3 px-4 bg-[#FFD600] text-black border-2 border-black rounded-2xl font-black uppercase tracking-wider text-xs shadow-[3px_3px_0px_0px_#000000] hover:bg-[#FEE21E] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[0px_0px_0px_0px_#000000] transition-all flex items-center justify-center gap-1.5"
                 >
-                  Enter Classroom
+                  {authMode === 'login' ? 'Enter Classroom' : 'Create Account'}
                 </button>
 
                 {/* Pre-fill Quick Demo login button */}
@@ -732,17 +926,17 @@ export default function App() {
                   onClick={() => {
                     if (loginRole === 'student') {
                       setLoginEmail('student@voiceop.edu');
-                      setLoginPassword('learn123');
-                      handleLogin('student', 'student@voiceop.edu');
+                      setLoginPassword('password123');
+                      setSignupName('Alex Student');
                     } else {
                       setLoginEmail('instructor@voiceop.edu');
-                      setLoginPassword('admin123');
-                      handleLogin('instructor', 'instructor@voiceop.edu');
+                      setLoginPassword('password123');
+                      setSignupName('Sarah Jenkins');
                     }
                   }}
                   className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-black dark:text-white border-2 border-black rounded-2xl font-bold uppercase text-[10px] tracking-wide"
                 >
-                  Quick Sign In (Auto-Fill Demo Credentials)
+                  Autofill Demo Credentials
                 </button>
               </div>
             </form>
