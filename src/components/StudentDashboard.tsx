@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  BookOpen, Search, Sparkles, Volume2, VolumeX, MessageSquare, HelpCircle, ArrowRight, Check, X, RefreshCw, ClipboardList, GraduationCap, Clock, CheckCircle, XCircle, Library
+  BookOpen, Search, Sparkles, Volume2, VolumeX, MessageSquare, HelpCircle, ArrowRight, Check, X, RefreshCw, ClipboardList, GraduationCap, Clock, CheckCircle, XCircle, Library, Mic, MicOff
 } from 'lucide-react';
 import { Course, Week, ChatMessage, QuizQuestion, Assignment, AssignmentSubmission, User, Enrollment, ParsedVoiceCommand } from '../types';
 import { simplifyWeekContent, chatWithStudyBuddy } from '../lib/gemini';
@@ -45,6 +45,67 @@ export default function StudentDashboard({
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isChatSending, setIsChatSending] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+
+  // STT Dictation State
+  const [activeDictationField, setActiveDictationField] = useState<string | null>(null);
+  const dictationRecRef = useRef<any>(null);
+
+  const startDictation = (fieldId: string, onTranscript: (text: string) => void) => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Speech Recognition is not supported in this browser. Please use Chrome.');
+      return;
+    }
+
+    if (activeDictationField === fieldId) {
+      stopDictation();
+      return;
+    }
+
+    if (synthRef.current) {
+      synthRef.current.cancel();
+      setIsPlayingTts(false);
+      setTtsSection(null);
+    }
+
+    const rec = new SpeechRecognition();
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.lang = 'en-US';
+
+    rec.onstart = () => {
+      setActiveDictationField(fieldId);
+    };
+
+    rec.onresult = (e: any) => {
+      const resultText = Array.from(e.results)
+        .map((r: any) => r[0].transcript)
+        .join(' ');
+      onTranscript(resultText);
+    };
+
+    rec.onerror = (err: any) => {
+      console.error('Dictation Error:', err);
+      stopDictation();
+    };
+
+    rec.onend = () => {
+      setActiveDictationField(null);
+    };
+
+    rec.start();
+    dictationRecRef.current = rec;
+  };
+
+  const stopDictation = () => {
+    if (dictationRecRef.current) {
+      dictationRecRef.current.stop();
+      dictationRecRef.current = null;
+    }
+    setActiveDictationField(null);
+  };
 
   // Quiz State
   const [quizAnswers, setQuizAnswers] = useState<number[]>([]);
@@ -714,15 +775,27 @@ export default function StudentDashboard({
                   </div>
 
                   {/* Chat input box */}
-                  <form onSubmit={handleSendMessage} className="flex gap-1.5 border-t border-slate-200 dark:border-slate-800 pt-3">
-                    <div className="relative flex-1">
+                  <form onSubmit={handleSendMessage} className="flex items-center gap-1.5 border-t border-slate-200 dark:border-slate-800 pt-3">
+                    <div className="relative flex-1 flex items-center gap-1.5">
                       <input
                         type="text"
                         placeholder="Type a question for your study tutor..."
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
-                        className="w-full px-3 py-2 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                        className="flex-1 px-3 py-2 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
                       />
+                      <button
+                        type="button"
+                        onClick={() => startDictation('chatInput', (text) => setChatInput(prev => (prev ? prev + ' ' + text : text)))}
+                        className={`p-2 border-2 border-black rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-[2px_2px_0px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                          activeDictationField === 'chatInput'
+                            ? 'bg-rose-500 text-white animate-pulse shadow-none translate-x-0.5 translate-y-0.5'
+                            : 'bg-[#FFD600] text-black hover:bg-[#FEE21E]'
+                        }`}
+                        title={activeDictationField === 'chatInput' ? 'Stop Listening' : 'Dictate Question (STT)'}
+                      >
+                        {activeDictationField === 'chatInput' ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                      </button>
                     </div>
 
                     <button

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  Plus, BookOpen, Sparkles, BookOpenCheck, Trash2, Edit2, Volume2, CheckCircle, Circle, PlusCircle, HelpCircle, Users, GraduationCap, XCircle, UserCheck, Search
+  Plus, BookOpen, Sparkles, BookOpenCheck, Trash2, Edit2, Volume2, CheckCircle, Circle, PlusCircle, HelpCircle, Users, GraduationCap, XCircle, UserCheck, Search, Mic, MicOff
 } from 'lucide-react';
 import { Course, Week, QuizQuestion, Assignment, AssignmentSubmission, Enrollment, ParsedVoiceCommand } from '../types';
 import { generateAICourse } from '../lib/gemini';
@@ -63,6 +63,65 @@ export default function InstructorDashboard({
   const [aiTopic, setAiTopic] = useState('');
   const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // STT Dictation State
+  const [activeDictationField, setActiveDictationField] = useState<string | null>(null);
+  const dictationRecRef = useRef<any>(null);
+
+  const startDictation = (fieldId: string, onTranscript: (text: string) => void) => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Speech Recognition is not supported in this browser. Please use Chrome.');
+      return;
+    }
+
+    if (activeDictationField === fieldId) {
+      stopDictation();
+      return;
+    }
+
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
+    const rec = new SpeechRecognition();
+    rec.continuous = true;
+    rec.interimResults = false;
+    rec.lang = 'en-US';
+
+    rec.onstart = () => {
+      setActiveDictationField(fieldId);
+    };
+
+    rec.onresult = (e: any) => {
+      const resultText = Array.from(e.results)
+        .map((r: any) => r[0].transcript)
+        .join(' ');
+      onTranscript(resultText);
+    };
+
+    rec.onerror = (err: any) => {
+      console.error('Dictation Error:', err);
+      stopDictation();
+    };
+
+    rec.onend = () => {
+      setActiveDictationField(null);
+    };
+
+    rec.start();
+    dictationRecRef.current = rec;
+  };
+
+  const stopDictation = () => {
+    if (dictationRecRef.current) {
+      dictationRecRef.current.stop();
+      dictationRecRef.current = null;
+    }
+    setActiveDictationField(null);
+  };
 
   // Edit Course Mode state
   const [isEditing, setIsEditing] = useState(false);
@@ -599,13 +658,27 @@ export default function InstructorDashboard({
                     <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
                       Course Core Topic
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Introduction to Astronomy for Beginners"
-                      value={aiTopic}
-                      onChange={(e) => setAiTopic(e.target.value)}
-                      className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. Introduction to Astronomy for Beginners"
+                        value={aiTopic}
+                        onChange={(e) => setAiTopic(e.target.value)}
+                        className="flex-1 px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => startDictation('aiTopic', (text) => setAiTopic(prev => (prev ? prev + ' ' + text : text)))}
+                        className={`p-2.5 border-2 border-black rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-[2px_2px_0px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                          activeDictationField === 'aiTopic'
+                            ? 'bg-rose-500 text-white animate-pulse shadow-none translate-x-0.5 translate-y-0.5'
+                            : 'bg-[#FFD600] text-black hover:bg-[#FEE21E]'
+                        }`}
+                        title={activeDictationField === 'aiTopic' ? 'Stop Listening' : 'Dictate Topic (STT)'}
+                      >
+                        {activeDictationField === 'aiTopic' ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   {aiError && (
@@ -652,26 +725,54 @@ export default function InstructorDashboard({
                     <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
                       Course Title
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. UX/UI Foundations"
-                      value={courseTitle}
-                      onChange={(e) => setCourseTitle(e.target.value)}
-                      className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. UX/UI Foundations"
+                        value={courseTitle}
+                        onChange={(e) => setCourseTitle(e.target.value)}
+                        className="flex-1 px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => startDictation('courseTitle', (text) => setCourseTitle(prev => (prev ? prev + ' ' + text : text)))}
+                        className={`p-2.5 border-2 border-black rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-[2px_2px_0px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                          activeDictationField === 'courseTitle'
+                            ? 'bg-rose-500 text-white animate-pulse shadow-none translate-x-0.5 translate-y-0.5'
+                            : 'bg-[#FFD600] text-black hover:bg-[#FEE21E]'
+                        }`}
+                        title={activeDictationField === 'courseTitle' ? 'Stop Listening' : 'Dictate Title (STT)'}
+                      >
+                        {activeDictationField === 'courseTitle' ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex flex-col gap-1.5">
                     <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
                       Course Summary
                     </label>
-                    <textarea
-                      placeholder="Enter a brief summary overview for students..."
-                      rows={3}
-                      value={courseDesc}
-                      onChange={(e) => setCourseDesc(e.target.value)}
-                      className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
-                    />
+                    <div className="flex items-start gap-2">
+                      <textarea
+                        placeholder="Enter a brief summary overview for students..."
+                        rows={3}
+                        value={courseDesc}
+                        onChange={(e) => setCourseDesc(e.target.value)}
+                        className="flex-1 px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => startDictation('courseDesc', (text) => setCourseDesc(prev => (prev ? prev + ' ' + text : text)))}
+                        className={`p-2.5 border-2 border-black rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-[2px_2px_0px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                          activeDictationField === 'courseDesc'
+                            ? 'bg-rose-500 text-white animate-pulse shadow-none translate-x-0.5 translate-y-0.5'
+                            : 'bg-[#FFD600] text-black hover:bg-[#FEE21E]'
+                        }`}
+                        title={activeDictationField === 'courseDesc' ? 'Stop Listening' : 'Dictate Summary (STT)'}
+                      >
+                        {activeDictationField === 'courseDesc' ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <button
@@ -760,24 +861,58 @@ export default function InstructorDashboard({
                   <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
                     Week Module Title
                   </label>
-                  <input
-                    type="text"
-                    value={editCourseData.weeks[selectedEditWeekIndex].title}
-                    onChange={(e) => updateEditWeekField(selectedEditWeekIndex, 'title', e.target.value)}
-                    className="px-3 py-2 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={editCourseData.weeks[selectedEditWeekIndex].title}
+                      onChange={(e) => updateEditWeekField(selectedEditWeekIndex, 'title', e.target.value)}
+                      className="flex-1 px-3 py-2 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => startDictation('weekTitle', (text) => {
+                        const cur = editCourseData.weeks[selectedEditWeekIndex].title || '';
+                        updateEditWeekField(selectedEditWeekIndex, 'title', cur ? cur + ' ' + text : text);
+                      })}
+                      className={`p-2 border-2 border-black rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-[2px_2px_0px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                        activeDictationField === 'weekTitle'
+                          ? 'bg-rose-500 text-white animate-pulse shadow-none translate-x-0.5 translate-y-0.5'
+                          : 'bg-[#FFD600] text-black hover:bg-[#FEE21E]'
+                      }`}
+                      title={activeDictationField === 'weekTitle' ? 'Stop Listening' : 'Dictate Week Title (STT)'}
+                    >
+                      {activeDictationField === 'weekTitle' ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
                     Module Lecture Content
                   </label>
-                  <textarea
-                    rows={6}
-                    value={editCourseData.weeks[selectedEditWeekIndex].content}
-                    onChange={(e) => updateEditWeekField(selectedEditWeekIndex, 'content', e.target.value)}
-                    className="px-3 py-2 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none leading-relaxed"
-                  />
+                  <div className="flex items-start gap-2">
+                    <textarea
+                      rows={6}
+                      value={editCourseData.weeks[selectedEditWeekIndex].content}
+                      onChange={(e) => updateEditWeekField(selectedEditWeekIndex, 'content', e.target.value)}
+                      className="flex-1 px-3 py-2 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none leading-relaxed"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => startDictation('weekContent', (text) => {
+                        const cur = editCourseData.weeks[selectedEditWeekIndex].content || '';
+                        updateEditWeekField(selectedEditWeekIndex, 'content', cur ? cur + ' ' + text : text);
+                      })}
+                      className={`p-2 border-2 border-black rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-[2px_2px_0px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                        activeDictationField === 'weekContent'
+                          ? 'bg-rose-500 text-white animate-pulse shadow-none translate-x-0.5 translate-y-0.5'
+                          : 'bg-[#FFD600] text-black hover:bg-[#FEE21E]'
+                      }`}
+                      title={activeDictationField === 'weekContent' ? 'Stop Listening' : 'Dictate Content (STT)'}
+                    >
+                      {activeDictationField === 'weekContent' ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
 

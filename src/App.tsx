@@ -642,152 +642,7 @@ export default function App() {
     }
   };
 
-  const handleVoiceCommandProcess = async (transcript: string) => {
-    if (isProcessingVoice) return;
-    
-    const cleanLower = transcript.toLowerCase().trim();
-    if (!cleanLower) return;
-
-    // Local pre-filtering keywords to save API quota from background noise and casual chatter
-    const commandKeywords = [
-      'mode', 'theme', 'dark', 'light', 'night', 'day', 'black', 'white',
-      'font', 'text', 'bigger', 'smaller', 'larger', 'shrink', 'zoom',
-      'course', 'class', 'catalog', 'library', 'syllabus', 'assignments', 'homework', 'task', 'students', 'roster', 'request', 'create',
-      'open', 'select', 'enter', 'choose', 'go to',
-      'simplify', 'easier', 'speak', 'read', 'audio', 'play',
-      'generate', 'ai',
-      'option', 'answer', 'question', 'number', 'submit'
-    ];
-
-    const hasKeyword = commandKeywords.some(kw => cleanLower.includes(kw));
-    if (!hasKeyword) {
-      // Ignore background noise silently without calling Gemini
-      return;
-    }
-
-    setIsProcessingVoice(true);
-    setVoiceStatus('Processing intent with Gemini...');
-    try {
-      const parsed = await parseVoiceCommand(transcript);
-      if (parsed.command === 'unknown') {
-        setVoiceStatus('Sorry, command not understood.');
-        speakConfirmation('Sorry, I did not understand that command.');
-      } else {
-        // Handle accessibility / theme operations directly in App.tsx
-        if (parsed.command === 'accessibility:theme_dark') {
-          setThemeMode('dark');
-          setVoiceStatus('Theme set to Dark Mode.');
-          speakConfirmation('Switching to dark mode.');
-        } else if (parsed.command === 'accessibility:theme_light') {
-          setThemeMode('light');
-          setVoiceStatus('Theme set to Light Mode.');
-          speakConfirmation('Switching to light mode.');
-        } else if (parsed.command === 'accessibility:font_larger') {
-          handleMakeLarger();
-          setVoiceStatus('Increased font size.');
-          speakConfirmation('Increasing text size.');
-        } else if (parsed.command === 'accessibility:font_smaller') {
-          handleMakeSmaller();
-          setVoiceStatus('Decreased font size.');
-          speakConfirmation('Decreasing text size.');
-        } else {
-          // Propagate other commands (navigation, simplifies, etc) to dashboards
-          setLastVoiceCommand({ ...parsed, timestamp: Date.now() });
-          
-          let confirmationText = `Navigated to ${parsed.command.split(':')[1]}`;
-          if (parsed.command === 'course:select') {
-            confirmationText = `Opening course ${parsed.params?.courseTitle || ''}`;
-          } else if (parsed.command === 'course:simplify') {
-            confirmationText = 'Simplifying course syllabus.';
-          } else if (parsed.command === 'course:speak') {
-            confirmationText = 'Reading lesson aloud.';
-          } else if (parsed.command === 'course:create_ai') {
-            confirmationText = `Generating curriculum for ${parsed.params?.topic || ''}`;
-          }
-          setVoiceStatus(confirmationText);
-          speakConfirmation(confirmationText);
-        }
-      }
-    } catch (err: any) {
-      console.error('Error in voice command handler:', err);
-      if (err.message?.includes('429') || err.message?.toLowerCase().includes('quota') || err.status === 429) {
-        setVoiceStatus('Rate limit exceeded. Please wait 3s.');
-        speakConfirmation('Rate limit exceeded. Please try again in 3 seconds.');
-      } else {
-        setVoiceStatus('Failed to process voice command.');
-      }
-    } finally {
-      setIsProcessingVoice(false);
-      setTimeout(() => setVoiceStatus(null), 4000);
-    }
-  };
-
-  // Self-healing continuous background voice loop
-  useEffect(() => {
-    let recognition: any = null;
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (voiceControlEnabled && SpeechRecognition) {
-      const startListening = () => {
-        if (recognition) return;
-        recognition = new SpeechRecognition();
-        recognition.continuous = false;
-        recognition.interimResults = false;
-        recognition.lang = 'en-US';
-
-        recognition.onstart = () => {
-          setIsVoiceActive(true);
-          setVoiceStatus('Listening for command...');
-        };
-
-        recognition.onresult = (e: any) => {
-          const transcript = e.results[0][0].transcript;
-          if (transcript) {
-            handleVoiceCommandProcess(transcript);
-          }
-        };
-
-        recognition.onerror = (err: any) => {
-          console.error('Speech Recognition Error:', err);
-          if (err.error === 'not-allowed') {
-            setVoiceControlEnabled(false);
-            setVoiceStatus('Microphone permission denied.');
-            setTimeout(() => setVoiceStatus(null), 3000);
-          }
-        };
-
-        recognition.onend = () => {
-          setIsVoiceActive(false);
-          recognition = null;
-          // Only restart loop if voice control is still enabled
-          if (voiceControlEnabled) {
-            setTimeout(startListening, 300);
-          }
-        };
-
-        try {
-          recognition.start();
-        } catch (e) {
-          console.error(e);
-        }
-      };
-
-      startListening();
-    }
-
-    return () => {
-      if (recognition) {
-        recognition.onend = null;
-        recognition.stop();
-      }
-      setIsVoiceActive(false);
-    };
-  }, [voiceControlEnabled]);
-
-  const toggleVoiceCommandListening = () => {
-    setVoiceControlEnabled(prev => !prev);
-  };
+  // Background voice controller removed. Local inputs speech-to-text is used instead.
 
   // Helper for generating course by AI via voice commands
   const handleAddCourseAIVoice = async (topic: string) => {
@@ -960,23 +815,6 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Voice Assistant Mic Button */}
-          {currentUser && (
-            <button
-              onClick={toggleVoiceCommandListening}
-              className={`p-2.5 border-2 border-black rounded-xl hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] active:translate-x-0 active:translate-y-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex items-center justify-center transition-all ${
-                voiceControlEnabled 
-                  ? isVoiceActive
-                    ? 'bg-rose-500 text-white animate-pulse'
-                    : 'bg-emerald-400 text-black' 
-                  : 'bg-slate-200 text-slate-500 hover:bg-slate-350 dark:bg-slate-800 dark:text-slate-400'
-              }`}
-              title={voiceControlEnabled ? 'Mute/Disable Background Voice Control' : 'Enable Background Voice Control'}
-            >
-              {voiceControlEnabled ? <Mic className="w-4 h-4 stroke-[2.5]" /> : <MicOff className="w-4 h-4 stroke-[2.5]" />}
-            </button>
-          )}
-
           {/* Accessibility desk toggle */}
           <button
             onClick={() => setIsSettingsOpen(true)}
@@ -1009,17 +847,6 @@ export default function App() {
           )}
         </div>
       </header>
-
-      {/* Voice Status Overlay Notification Banner */}
-      {voiceStatus && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-[#9333EA] text-white border-4 border-black rounded-2xl flex items-center gap-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] font-black text-xs uppercase tracking-wider animate-bounce">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
-          </span>
-          {voiceStatus}
-        </div>
-      )}
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 flex flex-col justify-start">
@@ -1214,36 +1041,7 @@ export default function App() {
         setTtsVoiceName={setTtsVoiceName}
       />
 
-      {/* Voice Control Login Prompt Modal */}
-      {showVoicePrompt && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border-4 border-black p-6 rounded-3xl max-w-sm w-full shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-center space-y-4">
-            <div className="w-12 h-12 bg-amber-400 border-2 border-black rounded-full flex items-center justify-center mx-auto text-black">
-              <Mic className="w-6 h-6 animate-pulse" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-sm font-black uppercase text-black dark:text-white">Enable Voice Control?</h4>
-              <p className="text-[11px] text-gray-500 dark:text-slate-400 font-bold leading-relaxed">
-                You can control VoiceOp using speech commands (e.g. "go to assignments", "switch to dark mode", "simplify lesson"). Would you like to enable the background voice listener?
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 pt-2">
-              <button
-                onClick={() => { setVoiceControlEnabled(true); setShowVoicePrompt(false); speakConfirmation("Voice assistant enabled."); }}
-                className="w-full py-2 px-4 bg-[#FFD600] text-black border-2 border-black rounded-xl font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-[#FEE21E] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all flex items-center justify-center gap-1.5"
-              >
-                <Mic className="w-3.5 h-3.5" /> Enable Voice Assistant
-              </button>
-              <button
-                onClick={() => { setVoiceControlEnabled(false); setShowVoicePrompt(false); }}
-                className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-black dark:text-white border-2 border-black rounded-xl font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all"
-              >
-                No, Keep Mic Disabled
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Voice prompt modal removed */}
     </div>
   );
 }
