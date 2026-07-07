@@ -1,37 +1,59 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
-  Plus, BookOpen, Sparkles, BookOpenCheck, Trash2, Edit2, Volume2, CheckCircle, Circle, PlusCircle, HelpCircle
+  Plus, BookOpen, Sparkles, BookOpenCheck, Trash2, Edit2, Volume2, CheckCircle, Circle, PlusCircle, HelpCircle, Users, GraduationCap, XCircle, UserCheck, Search
 } from 'lucide-react';
-import { Course, Week, QuizQuestion, Assignment, AssignmentSubmission } from '../types';
+import { Course, Week, QuizQuestion, Assignment, AssignmentSubmission, Enrollment, ParsedVoiceCommand } from '../types';
 import { generateAICourse } from '../lib/gemini';
+import { fetchAllStudents, StudentWithCourses } from '../lib/db';
 import InstructorAssignments from './InstructorAssignments';
 
 interface InstructorDashboardProps {
   courses: Course[];
   assignments: Assignment[];
   submissions: AssignmentSubmission[];
+  enrollments: Enrollment[];
+  voiceCommand: ParsedVoiceCommand | null;
   onAddCourse: (course: Course) => void;
   onDeleteCourse: (courseId: string) => void;
   onUpdateCourse: (course: Course) => void;
   onAddAssignment: (data: Omit<Assignment, 'id' | 'createdAt'>) => void;
   onDeleteAssignment: (assignmentId: string) => void;
   onGradeSubmission: (submissionId: string, grade: number, feedback: string) => void;
+  onUpdateEnrollments: (ids: string[], status: 'approved' | 'rejected') => void;
+  onAddCourseAI?: (topic: string) => Promise<void>;
 }
 
 export default function InstructorDashboard({
   courses,
   assignments,
   submissions,
+  enrollments,
+  voiceCommand,
   onAddCourse,
   onDeleteCourse,
   onUpdateCourse,
   onAddAssignment,
   onDeleteAssignment,
   onGradeSubmission,
+  onUpdateEnrollments,
+  onAddCourseAI,
 }: InstructorDashboardProps) {
   // Navigation states
-  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'assignments'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'assignments' | 'students'>('list');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+
+  // Students roster state
+  const [students, setStudents] = useState<StudentWithCourses[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+  const [studentsError, setStudentsError] = useState<string | null>(null);
+
+  // Enrollment bulk-action state
+  const [selectedEnrollmentIds, setSelectedEnrollmentIds] = useState<Set<string>>(new Set());
+  const [enrollmentsTab, setEnrollmentsTab] = useState<'requests' | 'roster'>('requests');
+
+  // Student Roster search and expansion states
+  const [rosterSearch, setRosterSearch] = useState('');
+  const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
 
   // Manual Course form state
   const [courseTitle, setCourseTitle] = useState('');
@@ -61,6 +83,53 @@ export default function InstructorDashboard({
       }
     };
   }, []);
+
+  // Load students when the students tab becomes active
+  useEffect(() => {
+    if (activeTab !== 'students') return;
+    setStudentsLoading(true);
+    setStudentsError(null);
+    fetchAllStudents()
+      .then(setStudents)
+      .catch((err) => setStudentsError(err.message || 'Failed to load students.'))
+      .finally(() => setStudentsLoading(false));
+  }, [activeTab]);
+
+  // Handle Voice Commands
+  useEffect(() => {
+    if (!voiceCommand) return;
+    const { command, params } = voiceCommand;
+    if (command === 'navigation:list') {
+      setActiveTab('list');
+      setIsEditing(false);
+      setSelectedCourse(null);
+    } else if (command === 'navigation:create') {
+      setActiveTab('create');
+      setIsEditing(false);
+      setSelectedCourse(null);
+    } else if (command === 'navigation:assignments') {
+      setActiveTab('assignments');
+      setIsEditing(false);
+      setSelectedCourse(null);
+    } else if (command === 'navigation:students') {
+      setActiveTab('students');
+      setIsEditing(false);
+      setSelectedCourse(null);
+    } else if (command === 'course:select') {
+      const match = courses.find(c =>
+        c.title.toLowerCase().includes(params?.courseTitle?.toLowerCase() || '')
+      );
+      if (match) {
+        setSelectedCourse(match);
+        setActiveTab('list');
+        setIsEditing(false);
+      }
+    } else if (command === 'course:create_ai' && params?.topic) {
+      if (onAddCourseAI) {
+        onAddCourseAI(params.topic);
+      }
+    }
+  }, [voiceCommand]);
 
   // Web TTS review reading (incorporates delay to bypass Chromium cancel-speak bugs)
   const speakText = (textToSpeak: string) => {
@@ -232,6 +301,40 @@ export default function InstructorDashboard({
 
   // --- End quiz helpers ---
 
+  // --- Add / Delete Week ---
+
+  const addWeek = () => {
+    if (!editCourseData) return;
+    const nextNum = editCourseData.weeks.length + 1;
+    const newWeek: Week = {
+      id: `week_new_${Date.now()}`,
+      weekNumber: nextNum,
+      title: `Week ${nextNum}: New Module`,
+      content: 'Add content here...',
+      quiz: [
+        {
+          question: 'Sample review question for this module?',
+          options: ['Option A', 'Option B', 'Option C', 'Option D'],
+          correctAnswerIndex: 0,
+        },
+      ],
+    };
+    const updatedWeeks = [...editCourseData.weeks, newWeek];
+    setEditCourseData({ ...editCourseData, weeks: updatedWeeks });
+    setSelectedEditWeekIndex(updatedWeeks.length - 1);
+  };
+
+  const deleteWeek = (weekIdx: number) => {
+    if (!editCourseData || editCourseData.weeks.length <= 1) return;
+    const updatedWeeks = editCourseData.weeks
+      .filter((_, i) => i !== weekIdx)
+      .map((w, i) => ({ ...w, weekNumber: i + 1 }));
+    setEditCourseData({ ...editCourseData, weeks: updatedWeeks });
+    setSelectedEditWeekIndex(Math.max(0, weekIdx - 1));
+  };
+
+  // --- End Week helpers ---
+
   const saveEditedCourse = () => {
     if (!editCourseData) return;
     onUpdateCourse(editCourseData);
@@ -290,6 +393,17 @@ export default function InstructorDashboard({
           >
             📋 Assignments
           </button>
+          <button
+            onClick={() => { setActiveTab('students'); setIsEditing(false); setSelectedCourse(null); }}
+            className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[0px_0px_0px_0px_#000000] flex items-center gap-1.5 ${
+              activeTab === 'students' && !isEditing
+                ? 'bg-emerald-500 text-white'
+                : 'bg-white dark:bg-slate-800 text-black dark:text-white'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5 stroke-[2.5]" />
+            Students
+          </button>
         </div>
       </div>
 
@@ -329,7 +443,7 @@ export default function InstructorDashboard({
                     </p>
 
                     <div className="flex justify-between items-center text-[9px] font-extrabold text-gray-400 dark:text-slate-500 border-t border-slate-200 dark:border-slate-800 pt-1.5">
-                      <span>4 Modules (Weeks)</span>
+                      <span>{course.weeks.length} Module{course.weeks.length !== 1 ? 's' : ''}</span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -395,7 +509,7 @@ export default function InstructorDashboard({
                   {/* Weekly Modules list */}
                   <div className="space-y-4">
                     <h4 className="text-[11px] font-black uppercase text-gray-400 dark:text-slate-500 tracking-wider">
-                      Syllabus Breakdown (4 Weeks)
+                      Syllabus Breakdown ({selectedCourse.weeks.length} Week{selectedCourse.weeks.length !== 1 ? 's' : ''})
                     </h4>
                     
                     <div className="grid grid-cols-1 gap-4">
@@ -605,21 +719,39 @@ export default function InstructorDashboard({
                     Save Changes
                   </button>
                 </div>
-              </div>              {/* 4 Weeks Quick Nav Tabs */}
-              <div className="flex gap-1.5 overflow-x-auto pb-2">
+              </div>              {/* Week Nav Tabs + Add Week button */}
+              <div className="flex gap-1.5 overflow-x-auto pb-2 items-center">
                 {editCourseData.weeks.map((week, idx) => (
-                  <button
-                    key={week.id}
-                    onClick={() => { setSelectedEditWeekIndex(idx); }}
-                    className={`px-3.5 py-2 border-2 border-black rounded-xl text-xs font-black uppercase flex-shrink-0 transition-all ${
-                      selectedEditWeekIndex === idx 
-                        ? 'bg-[#FFD600] text-black shadow-[2px_2px_0px_0px_#000000]' 
-                        : 'bg-slate-50 dark:bg-slate-950 text-black dark:text-white'
-                    }`}
-                  >
-                    Week {week.weekNumber}
-                  </button>
+                  <div key={week.id} className="relative flex-shrink-0 group">
+                    <button
+                      onClick={() => { setSelectedEditWeekIndex(idx); }}
+                      className={`px-3.5 py-2 border-2 border-black rounded-xl text-xs font-black uppercase transition-all pr-6 ${
+                        selectedEditWeekIndex === idx 
+                          ? 'bg-[#FFD600] text-black shadow-[2px_2px_0px_0px_#000000]' 
+                          : 'bg-slate-50 dark:bg-slate-950 text-black dark:text-white'
+                      }`}
+                    >
+                      W{week.weekNumber}
+                    </button>
+                    {editCourseData.weeks.length > 1 && (
+                      <button
+                        onClick={() => deleteWeek(idx)}
+                        title="Remove this week"
+                        className="absolute -top-1.5 -right-1.5 hidden group-hover:flex w-4 h-4 bg-rose-500 text-white rounded-full items-center justify-center border border-black"
+                      >
+                        <XCircle className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 ))}
+                <button
+                  onClick={addWeek}
+                  title="Add a new week"
+                  className="flex-shrink-0 flex items-center gap-1 px-3 py-2 border-2 border-dashed border-black rounded-xl text-xs font-black uppercase bg-white dark:bg-slate-900 text-black dark:text-white hover:bg-emerald-50 hover:border-emerald-500 hover:text-emerald-700 transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                  Add Week
+                </button>
               </div>
 
               {/* Edit Week Forms */}
@@ -782,6 +914,335 @@ export default function InstructorDashboard({
           <p className="text-sm font-black uppercase text-slate-400">Create a course first before adding assignments.</p>
         </div>
       )}
+
+      {/* STUDENTS TAB */}
+      {activeTab === 'students' && !isEditing && (() => {
+        const pendingEnrollments = enrollments.filter(e => e.status === 'pending');
+        const allPendingSelected = pendingEnrollments.length > 0 &&
+          pendingEnrollments.every(e => selectedEnrollmentIds.has(e.id));
+
+        const toggleSelect = (id: string) => {
+          setSelectedEnrollmentIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+          });
+        };
+
+        const toggleAll = () => {
+          if (allPendingSelected) {
+            setSelectedEnrollmentIds(new Set());
+          } else {
+            setSelectedEnrollmentIds(new Set(pendingEnrollments.map(e => e.id)));
+          }
+        };
+
+        const handleBulkAction = async (status: 'approved' | 'rejected') => {
+          const ids = Array.from(selectedEnrollmentIds) as string[];
+          if (ids.length === 0) return;
+          await onUpdateEnrollments(ids, status);
+          setSelectedEnrollmentIds(new Set());
+        };
+
+        return (
+          <div className="bg-white dark:bg-slate-900 border-4 border-black p-6 rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] space-y-5">
+            {/* Header */}
+            <div className="flex items-center gap-3 border-b-2 border-black pb-4">
+              <div className="p-2.5 bg-emerald-100 dark:bg-emerald-950 border-2 border-black rounded-xl">
+                <GraduationCap className="w-5 h-5 text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black uppercase text-black dark:text-white tracking-tight">Students & Enrollments</h3>
+                <p className="text-xs font-bold text-gray-500 dark:text-slate-400">Review enrollment requests and manage your student roster.</p>
+              </div>
+              {pendingEnrollments.length > 0 && (
+                <span className="ml-auto bg-amber-400 text-black text-[10px] font-black px-2.5 py-1 rounded-full border-2 border-black">
+                  {pendingEnrollments.length} Pending
+                </span>
+              )}
+            </div>
+
+            {/* Sub-tabs */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEnrollmentsTab('requests')}
+                className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000] flex items-center gap-1.5 ${
+                  enrollmentsTab === 'requests' ? 'bg-[#FFD600] text-black' : 'bg-slate-100 dark:bg-slate-800 text-black dark:text-white'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                Enrollment Requests
+                {pendingEnrollments.length > 0 && (
+                  <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">{pendingEnrollments.length}</span>
+                )}
+              </button>
+              <button
+                onClick={() => { setEnrollmentsTab('roster'); setStudentsLoading(true); setStudentsError(null); fetchAllStudents().then(setStudents).catch(err => setStudentsError(err.message)).finally(() => setStudentsLoading(false)); }}
+                className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000] flex items-center gap-1.5 ${
+                  enrollmentsTab === 'roster' ? 'bg-[#FFD600] text-black' : 'bg-slate-100 dark:bg-slate-800 text-black dark:text-white'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                Student Roster
+              </button>
+            </div>
+
+            {/* ── ENROLLMENT REQUESTS PANEL ── */}
+            {enrollmentsTab === 'requests' && (
+              <div className="space-y-4">
+                {/* Bulk action toolbar */}
+                {pendingEnrollments.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-300 rounded-2xl">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allPendingSelected}
+                        onChange={toggleAll}
+                        className="w-4 h-4 rounded border-2 border-black accent-black"
+                      />
+                      <span className="text-xs font-black uppercase text-black dark:text-white">Select All ({pendingEnrollments.length})</span>
+                    </label>
+
+                    <div className="ml-auto flex gap-2">
+                      <button
+                        disabled={selectedEnrollmentIds.size === 0}
+                        onClick={() => handleBulkAction('approved')}
+                        className={`px-3.5 py-1.5 border-2 border-black rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all ${
+                          selectedEnrollmentIds.size === 0
+                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                            : 'bg-emerald-400 hover:bg-emerald-500 text-black'
+                        }`}
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        Approve {selectedEnrollmentIds.size > 0 ? `(${selectedEnrollmentIds.size})` : ''}
+                      </button>
+                      <button
+                        disabled={selectedEnrollmentIds.size === 0}
+                        onClick={() => handleBulkAction('rejected')}
+                        className={`px-3.5 py-1.5 border-2 border-black rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all ${
+                          selectedEnrollmentIds.size === 0
+                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                            : 'bg-rose-400 hover:bg-rose-500 text-black'
+                        }`}
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        Reject {selectedEnrollmentIds.size > 0 ? `(${selectedEnrollmentIds.size})` : ''}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Request cards */}
+                {enrollments.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+                    <UserCheck className="w-12 h-12 text-slate-300 dark:text-slate-700 stroke-[1.5]" />
+                    <p className="text-sm font-black uppercase text-slate-400">No Enrollment Requests Yet</p>
+                    <p className="text-xs text-gray-500 max-w-xs">Students will appear here once they request enrollment from the Course Catalog.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Group by status */}
+                    {(['pending', 'approved', 'rejected'] as const).map(status => {
+                      const group = enrollments.filter(e => e.status === status);
+                      if (group.length === 0) return null;
+                      return (
+                        <div key={status} className="space-y-2">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mt-2">
+                            {status === 'pending' ? '⏳ Pending Approval' : status === 'approved' ? '✅ Approved' : '❌ Rejected'}
+                          </p>
+                          {group.map(enrollment => {
+                            const course = courses.find(c => c.id === enrollment.courseId);
+                            const isSelected = selectedEnrollmentIds.has(enrollment.id);
+                            return (
+                              <div
+                                key={enrollment.id}
+                                className={`flex items-center gap-3 p-3.5 border-2 rounded-2xl transition-all ${
+                                  status === 'pending'
+                                    ? isSelected
+                                      ? 'border-black bg-amber-50 dark:bg-amber-950/30 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                                      : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 hover:border-black'
+                                    : status === 'approved'
+                                      ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-950/20'
+                                      : 'border-rose-200 bg-rose-50 dark:bg-rose-950/20'
+                                }`}
+                              >
+                                {/* Checkbox for pending only */}
+                                {status === 'pending' && (
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleSelect(enrollment.id)}
+                                    className="w-4 h-4 rounded border-2 border-black accent-black flex-shrink-0"
+                                  />
+                                )}
+
+                                {/* Avatar */}
+                                <div
+                                  className="w-9 h-9 rounded-full border-2 border-black flex items-center justify-center font-black text-sm uppercase flex-shrink-0 text-white"
+                                  style={{ backgroundColor: 'var(--accent)' }}
+                                >
+                                  {enrollment.studentName.charAt(0)}
+                                </div>
+
+                                {/* Info */}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-black text-black dark:text-white">{enrollment.studentName}</p>
+                                  <p className="text-[10px] text-gray-500 truncate font-bold">
+                                    → {course?.title ?? enrollment.courseId}
+                                  </p>
+                                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">
+                                    {new Date(enrollment.createdAt).toLocaleDateString()}
+                                  </p>
+                                </div>
+
+                                {/* Per-row quick actions for pending */}
+                                {status === 'pending' && (
+                                  <div className="flex gap-1.5 flex-shrink-0">
+                                    <button
+                                      onClick={() => onUpdateEnrollments([enrollment.id], 'approved')}
+                                      className="p-1.5 bg-emerald-100 hover:bg-emerald-200 border border-emerald-400 text-emerald-700 rounded-lg transition-all"
+                                      title="Approve"
+                                    >
+                                      <CheckCircle className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => onUpdateEnrollments([enrollment.id], 'rejected')}
+                                      className="p-1.5 bg-rose-100 hover:bg-rose-200 border border-rose-400 text-rose-700 rounded-lg transition-all"
+                                      title="Reject"
+                                    >
+                                      <XCircle className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── STUDENT ROSTER PANEL ── */}
+            {enrollmentsTab === 'roster' && (() => {
+              const filteredStudents = students.filter(student =>
+                student.name.toLowerCase().includes(rosterSearch.toLowerCase())
+              );
+
+              return (
+                <div className="space-y-4">
+                  {/* Search Bar */}
+                  <div className="relative w-full">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 stroke-[2.5]" />
+                    <input
+                      type="text"
+                      placeholder="Search students by name..."
+                      value={rosterSearch}
+                      onChange={(e) => setRosterSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                    />
+                  </div>
+
+                  {studentsLoading && (
+                    <div className="flex items-center justify-center py-16">
+                      <span className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></span>
+                    </div>
+                  )}
+                  {studentsError && (
+                    <div className="p-3 bg-rose-100 border-2 border-rose-300 text-rose-800 rounded-xl text-xs font-bold">{studentsError}</div>
+                  )}
+                  {!studentsLoading && !studentsError && filteredStudents.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+                      <Users className="w-12 h-12 text-slate-300 dark:text-slate-700 stroke-[1.5]" />
+                      <p className="text-sm font-black uppercase text-slate-400">No matching students found.</p>
+                    </div>
+                  )}
+
+                  {!studentsLoading && filteredStudents.length > 0 && (
+                    <div className="flex flex-col gap-3">
+                      {filteredStudents.map((student) => {
+                        const approvedEnrollments = enrollments.filter(
+                          e => e.studentId === student.id && e.status === 'approved'
+                        );
+                        const approvedCourses = courses.filter(c =>
+                          approvedEnrollments.some(e => e.courseId === c.id)
+                        );
+                        const isExpanded = expandedStudentId === student.id;
+
+                        return (
+                          <div 
+                            key={student.id}
+                            className="border-2 border-black rounded-2xl bg-white dark:bg-slate-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden transition-all"
+                          >
+                            {/* List Row (default view) */}
+                            <div 
+                              onClick={() => setExpandedStudentId(isExpanded ? null : student.id)}
+                              className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-850"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div 
+                                  className="w-8 h-8 rounded-full border-2 border-black flex items-center justify-center font-black text-xs uppercase flex-shrink-0 text-white"
+                                  style={{ backgroundColor: 'var(--accent)' }}
+                                >
+                                  {student.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-black text-black dark:text-white">{student.name}</p>
+                                  <p className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">
+                                    {approvedCourses.length} Enrolled • {student.submissionCount} Submissions
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                                {isExpanded ? 'Collapse ▲' : 'View Card ▼'}
+                              </span>
+                            </div>
+
+                            {/* Card Details (revealed when clicked) */}
+                            {isExpanded && (
+                              <div className="p-4 bg-slate-50 dark:bg-slate-950 border-t-2 border-black space-y-4 animate-fadeIn">
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="p-2.5 bg-white dark:bg-slate-900 border border-black rounded-xl text-center">
+                                    <p className="text-lg font-black text-black dark:text-white leading-none">{approvedCourses.length}</p>
+                                    <p className="text-[9px] font-black uppercase text-gray-400 mt-1">Enrolled Courses</p>
+                                  </div>
+                                  <div className="p-2.5 bg-white dark:bg-slate-900 border border-black rounded-xl text-center">
+                                    <p className="text-lg font-black text-black dark:text-white leading-none">{student.submissionCount}</p>
+                                    <p className="text-[9px] font-black uppercase text-gray-400 mt-1">Total Submissions</p>
+                                  </div>
+                                </div>
+
+                                {approvedCourses.length > 0 ? (
+                                  <div className="space-y-1.5">
+                                    <p className="text-[9px] font-black uppercase text-gray-400 tracking-wider">Active Enrollment Details</p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      {approvedCourses.map(c => (
+                                        <div key={c.id} className="flex items-center gap-1.5 p-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl">
+                                          <BookOpen className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                                          <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 truncate">{c.title}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-gray-400 italic">Not enrolled in any course yet.</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+          </div>
+        );
+      })()}
 
     </div>
   );

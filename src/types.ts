@@ -84,3 +84,43 @@ export interface AssignmentSubmission {
   /** Instructor feedback text */
   feedback?: string;
 }
+
+// ─── Enrollment System ────────────────────────────────────────────────────────
+
+export interface Enrollment {
+  id: string;
+  studentId: string;
+  courseId: string;
+  studentName: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+}
+
+export interface ParsedVoiceCommand {
+  command:
+    | 'navigation:list'
+    | 'navigation:create'
+    | 'navigation:assignments'
+    | 'navigation:students'
+    | 'navigation:catalog'
+    | 'course:select'
+    | 'course:simplify'
+    | 'course:speak'
+    | 'course:create_ai'
+    | 'accessibility:font_larger'
+    | 'accessibility:font_smaller'
+    | 'accessibility:theme_dark'
+    | 'accessibility:theme_light'
+    | 'quiz:select'
+    | 'quiz:submit'
+    | 'assignment:submit'
+    | 'unknown';
+  params?: {
+    courseTitle?: string;
+    topic?: string;
+    questionNumber?: number; // 1-indexed
+    optionLetter?: string; // 'A', 'B', 'C', 'D'
+  };
+}
+
+

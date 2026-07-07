@@ -1,44 +1,32 @@
 import { GoogleGenAI } from '@google/genai';
-import { Course } from '../types';
+import { Course, ParsedVoiceCommand } from '../types';
 
 /**
- * Resolves the Gemini API Key from multiple sources:
- * 1. Provided parameter
- * 2. Environment variable (VITE_GEMINI_API_KEY)
- * 3. LocalStorage fallback
+ * Returns the Gemini API Key from the environment variable.
  */
-export function getApiKey(): string {
-  // Try Vite environment variable first
-  const envKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
-  if (envKey && envKey !== 'MY_GEMINI_API_KEY') {
-    return envKey;
-  }
-  
-  // Try localStorage fallback
-  const localKey = localStorage.getItem('voiceop_gemini_api_key');
-  if (localKey) {
-    return localKey;
-  }
-
-  return '';
+function getApiKey(): string {
+  const metaEnv = typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : {};
+  const procEnv = typeof process !== 'undefined' && process.env ? process.env : {};
+  return procEnv.GEMINI_API_KEY || procEnv.VITE_GEMINI_API_KEY || metaEnv.GEMINI_API_KEY || metaEnv.VITE_GEMINI_API_KEY || '';
 }
 
 /**
- * Initializes and returns a GoogleGenAI client
+ * Initializes and returns a GoogleGenAI client using the environment API key.
  */
-export function getGeminiClient(customApiKey?: string): GoogleGenAI {
-  const apiKey = customApiKey || getApiKey();
+function getGeminiClient(): GoogleGenAI {
+  const apiKey = getApiKey();
   if (!apiKey) {
-    throw new Error('Gemini API key is missing. Please add your key in the Accessibility Settings panel.');
+    throw new Error('Gemini API key is not configured. Please set GEMINI_API_KEY in your environment.');
   }
   return new GoogleGenAI({ apiKey });
 }
 
+
 /**
  * Generate a 4-week course syllabus based on a topic using Gemini
  */
-export async function generateAICourse(topic: string, customApiKey?: string): Promise<Course> {
-  const ai = getGeminiClient(customApiKey);
+export async function generateAICourse(topic: string): Promise<Course> {
+  const ai = getGeminiClient();
   
   const prompt = `You are an expert curriculum developer. Generate a comprehensive 4-week e-learning course syllabus on the topic: "${topic}".
   The course outline must include a main title, course description, and details for each of the 4 weeks.
@@ -105,8 +93,8 @@ export async function generateAICourse(topic: string, customApiKey?: string): Pr
 /**
  * Simplifies a paragraph of educational content using Gemini
  */
-export async function simplifyWeekContent(content: string, customApiKey?: string): Promise<string> {
-  const ai = getGeminiClient(customApiKey);
+export async function simplifyWeekContent(content: string): Promise<string> {
+  const ai = getGeminiClient();
   
   const prompt = `You are a helpful and expert learning accessibility assistant. 
   Rewrite the following course material to make it extremely simple, easy to read, and clear for beginners.
@@ -137,10 +125,9 @@ export async function chatWithStudyBuddy(
   courseTitle: string,
   weekContent: string,
   question: string,
-  chatHistory: { sender: 'user' | 'assistant'; text: string }[],
-  customApiKey?: string
+  chatHistory: { sender: 'user' | 'assistant'; text: string }[]
 ): Promise<string> {
-  const ai = getGeminiClient(customApiKey);
+  const ai = getGeminiClient();
 
   // Map history to the format expected by the Gemini chat API
   // or construct a conversational prompt block
@@ -179,3 +166,85 @@ export async function chatWithStudyBuddy(
     throw new Error(error.message || 'Failed to get answer from study buddy.');
   }
 }
+
+
+
+
+/**
+ * Parses a voice transcript into a structured navigation or accessibility command using Gemini.
+ */
+export async function parseVoiceCommand(transcript: string): Promise<ParsedVoiceCommand> {
+  const ai = getGeminiClient();
+
+  const prompt = `You are a voice command intent classifier for the VoiceOp e-learning platform.
+  Analyze the spoken speech input and map it to the correct command using semantic reasoning. Speech recognition transcripts can have spelling errors, homophones (e.g. "be" instead of "B", "one" instead of "1"), or informal phrasings. Map them intelligently!
+
+  Here is the list of available commands and instructions:
+  - "navigation:list": Go to "My Courses", syllabus list, or home. (e.g., "list courses", "go home", "my classes", "show classes", "courses list")
+  - "navigation:create": Go to syllabus creation page. (e.g., "create new course", "add syllabus", "new course outline", "make a syllabus")
+  - "navigation:assignments": Go to assignments workspace. (e.g., "show assignments", "my tasks", "view assignments", "open homework")
+  - "navigation:students": Go to student roster/enrollments panel. (e.g., "show students", "roster list", "student list", "enrollment requests", "view class roster")
+  - "navigation:catalog": Go to the course catalog. (e.g., "browse catalog", "course catalog", "search all courses", "open library")
+  - "course:select": Open/select a course. Extract the title into 'courseTitle'. (e.g., "open modern javascript", "select the python class", "enter chemistry course", "go to advanced ai class")
+  - "course:simplify": Simplify syllabus/module lesson text. (e.g., "make this simple", "summarize content", "simplify lesson", "easier explanation", "shorten week content")
+  - "course:speak": Read syllabus lesson text out loud. (e.g., "read week content", "speak lesson text", "read aloud", "read page to me", "play audio summary")
+  - "course:create_ai": Auto-create a course outline using AI. Extract topic into 'topic'. (e.g., "create a course on astrophysics", "make outline for global history", "generate syllabus about node js")
+  - "accessibility:font_larger": Increase text/font scale. (e.g., "make text bigger", "increase font size", "larger letters", "zoom in text")
+  - "accessibility:font_smaller": Decrease text/font scale. (e.g., "smaller font", "make text smaller", "shrink letters", "decrease font size")
+  - "accessibility:theme_dark": Enable dark theme. (e.g., "dark mode", "enable black background", "switch to dark theme", "night mode")
+  - "accessibility:theme_light": Enable light theme. (e.g., "light mode", "white theme", "normal background", "day mode")
+  - "quiz:select": Select answer option for a quiz question. Extract 'questionNumber' as integer (e.g. 1) and 'optionLetter' as uppercase string (e.g. "A"). Resolve "B" from "be/bee", "A" from "ay/eh", "C" from "see/sea", "D" from "dee", "1" from "one/won", "2" from "two/too/to", "3" from "three/tree", etc. (e.g., "select option A for question 1", "answer option B for question number 2", "choose C for number 3", "select option D for question 1")
+  - "quiz:submit": Submit test/quiz. (e.g., "submit my answers", "finish test", "submit test responses", "submit quiz")
+  - "assignment:submit": Save and submit draft response for the active assignment. (e.g., "submit my homework", "send assignment response", "submit assignment work")
+  - "unknown": User statement does not represent any command. (e.g., general conversation, hello, questions about syllabus content, text inputs)
+
+  EXAMPLES:
+  1. Input: "make the letters bigger please"
+     Output: {"command": "accessibility:font_larger"}
+  2. Input: "switch to dark theme"
+     Output: {"command": "accessibility:theme_dark"}
+  3. Input: "i want to select option be for question number two"
+     Output: {"command": "quiz:select", "params": {"questionNumber": 2, "optionLetter": "B"}}
+  4. Input: "answer see for question three"
+     Output: {"command": "quiz:select", "params": {"questionNumber": 3, "optionLetter": "C"}}
+  5. Input: "generate course outline for organic chemistry"
+     Output: {"command": "course:create_ai", "params": {"topic": "organic chemistry"}}
+  6. Input: "select the course called modern javascript"
+     Output: {"command": "course:select", "params": {"courseTitle": "modern javascript"}}
+  7. Input: "read this week's lesson text"
+     Output: {"command": "course:speak"}
+  8. Input: "finish my quiz answers"
+     Output: {"command": "quiz:submit"}
+
+  User Speech: "${transcript}"
+
+  Return ONLY a valid JSON object matching the schema below. Do NOT wrap the JSON in markdown code blocks like \`\`\`json.
+  {
+    "command": "navigation:list" | "navigation:create" | "navigation:assignments" | "navigation:students" | "navigation:catalog" | "course:select" | "course:simplify" | "course:speak" | "course:create_ai" | "accessibility:font_larger" | "accessibility:font_smaller" | "accessibility:theme_dark" | "accessibility:theme_light" | "quiz:select" | "quiz:submit" | "assignment:submit" | "unknown",
+    "params": {
+      "courseTitle": "optional extracted course title",
+      "topic": "optional extracted course generation topic",
+      "questionNumber": "optional extracted quiz question number as an integer",
+      "optionLetter": "optional extracted option letter like 'A', 'B', 'C', 'D' as a string"
+    }
+  }`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const text = response.text?.trim() || '{}';
+    // Clean up if the API wrapped it in backticks despite instructions
+    const cleanText = text.replace(/^```json\s*/i, '').replace(/```$/, '');
+    return JSON.parse(cleanText) as ParsedVoiceCommand;
+  } catch (error) {
+    console.error('Error parsing voice command with Gemini:', error);
+    return { command: 'unknown' };
+  }
+}
+

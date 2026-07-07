@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
-import { Course, Assignment, AssignmentSubmission, User } from '../types';
+import { Course, Assignment, AssignmentSubmission, User, Enrollment } from '../types';
+
 
 // --- Mappings ---
 
@@ -202,6 +203,120 @@ export async function upsertProfile(userId: string, name: string, role: 'student
   const { error } = await supabase
     .from('profiles')
     .upsert({ id: userId, name, role });
+
+  if (error) throw error;
+}
+
+export interface StudentWithCourses {
+  id: string;
+  name: string;
+  email?: string;
+  enrolledCourseIds: string[];
+  submissionCount: number;
+}
+
+/**
+ * Fetches all student profiles plus a derived list of the course IDs
+ * they have submitted assignments for (used as a proxy for enrollment).
+ */
+export async function fetchAllStudents(): Promise<StudentWithCourses[]> {
+  // Fetch all profiles with role=student
+  const { data: profiles, error: profilesError } = await supabase
+    .from('profiles')
+    .select('id, name, role')
+    .eq('role', 'student');
+
+  if (profilesError) throw profilesError;
+  if (!profiles || profiles.length === 0) return [];
+
+  // Fetch all submissions so we can derive which courses each student engaged with
+  const { data: subs, error: subsError } = await supabase
+    .from('submissions')
+    .select('student_id, course_id');
+
+  if (subsError) throw subsError;
+
+  const subsByCourse = (subs || []).reduce<Record<string, Set<string>>>((acc, sub) => {
+    if (!acc[sub.student_id]) acc[sub.student_id] = new Set();
+    acc[sub.student_id].add(sub.course_id);
+    return acc;
+  }, {});
+
+  return profiles.map((p) => {
+    const courseSet = subsByCourse[p.id] || new Set<string>();
+    return {
+      id: p.id,
+      name: p.name,
+      enrolledCourseIds: Array.from(courseSet),
+      submissionCount: (subs || []).filter(s => s.student_id === p.id).length,
+    };
+  });
+}
+
+// ─── Enrollments ─────────────────────────────────────────────────────────────
+
+function mapDBEnrollmentToApp(row: any): Enrollment {
+  return {
+    id: row.id,
+    studentId: row.student_id,
+    courseId: row.course_id,
+    studentName: row.student_name,
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
+
+/** Student requests enrollment in a course (inserts pending row). */
+export async function requestEnrollment(
+  studentId: string,
+  courseId: string,
+  studentName: string
+): Promise<Enrollment> {
+  const { data, error } = await supabase
+    .from('enrollments')
+    .upsert(
+      { student_id: studentId, course_id: courseId, student_name: studentName, status: 'pending' },
+      { onConflict: 'student_id,course_id', ignoreDuplicates: false }
+    )
+    .select()
+    .single();
+
+  if (error) throw error;
+  return mapDBEnrollmentToApp(data);
+}
+
+/** Returns all enrollments for a specific student. */
+export async function fetchMyEnrollments(studentId: string): Promise<Enrollment[]> {
+  const { data, error } = await supabase
+    .from('enrollments')
+    .select('*')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(mapDBEnrollmentToApp);
+}
+
+/** Returns ALL enrollments across all students (instructor view). */
+export async function fetchAllEnrollments(): Promise<Enrollment[]> {
+  const { data, error } = await supabase
+    .from('enrollments')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(mapDBEnrollmentToApp);
+}
+
+/** Bulk update enrollment status (approve or reject). */
+export async function updateEnrollmentStatus(
+  ids: string[],
+  status: 'approved' | 'rejected'
+): Promise<void> {
+  const { error } = await supabase
+    .from('enrollments')
+    .update({ status })
+    .in('id', ids);
 
   if (error) throw error;
 }

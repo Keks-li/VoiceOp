@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { 
-  Sun, Moon, Type, Sparkles, Sliders, Key, HelpCircle, X, ChevronRight, Check
+  Sun, Moon, Type, Sliders, X
 } from 'lucide-react';
 import { ThemeMode, PrimaryColor, FontFamily, FontSize } from '../types';
-import { getApiKey } from '../lib/gemini';
 
 interface AccessibilityControlsProps {
   isOpen: boolean;
@@ -38,16 +37,10 @@ export default function AccessibilityControls({
   ttsVoiceName,
   setTtsVoiceName
 }: AccessibilityControlsProps) {
-  const [apiKey, setApiKey] = useState('');
-  const [showKeyFeedback, setShowKeyFeedback] = useState(false);
   const [systemVoices, setSystemVoices] = useState<SpeechSynthesisVoice[]>([]);
 
-  // Load API key from local storage on mount
-  useEffect(() => {
-    setApiKey(getApiKey());
-  }, [isOpen]);
-
   // Load TTS voices
+
   useEffect(() => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       const loadVoices = () => {
@@ -62,18 +55,6 @@ export default function AccessibilityControls({
     }
   }, []);
 
-  const handleSaveApiKey = () => {
-    localStorage.setItem('voiceop_gemini_api_key', apiKey.trim());
-    setShowKeyFeedback(true);
-    setTimeout(() => setShowKeyFeedback(false), 2000);
-  };
-
-  const handleClearApiKey = () => {
-    localStorage.removeItem('voiceop_gemini_api_key');
-    setApiKey('');
-    setShowKeyFeedback(true);
-    setTimeout(() => setShowKeyFeedback(false), 2000);
-  };
 
   if (!isOpen) return null;
 
@@ -274,57 +255,6 @@ export default function AccessibilityControls({
             )}
           </div>
 
-          {/* Gemini API Key Panel */}
-          <div className="bg-white dark:bg-slate-850 p-4 rounded-2xl border-2 border-black shadow-[4px_4px_0px_0px_#000000] space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-amber-500 stroke-[2.5]" />
-                <label className="text-xs font-black uppercase tracking-wider text-gray-500 dark:text-slate-400">
-                  Gemini API Configuration
-                </label>
-              </div>
-              {(import.meta as any).env.VITE_GEMINI_API_KEY && (import.meta as any).env.VITE_GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && (
-                <span className="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold px-1.5 py-0.5 rounded">
-                  System Key Active
-                </span>
-              )}
-            </div>
-
-            <p className="text-[10px] text-gray-500 dark:text-slate-400 leading-normal font-medium">
-              If your developer setup has not set VITE_GEMINI_API_KEY in .env, you can paste your personal key below. It remains secure locally on your browser.
-            </p>
-
-            <div className="flex gap-2">
-              <input
-                type="password"
-                placeholder="AIzaSy..."
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="flex-1 px-3 py-2 text-xs font-mono border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-900 text-black dark:text-white"
-              />
-              <button
-                onClick={handleSaveApiKey}
-                className="px-3 py-2 text-xs font-black bg-black text-white hover:bg-slate-850 rounded-xl border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[0px_0px_0px_0px_rgba(0,0,0,1)]"
-              >
-                Save
-              </button>
-            </div>
-            
-            {apiKey && (
-              <button
-                onClick={handleClearApiKey}
-                className="text-[10px] font-bold text-rose-500 hover:underline block text-left"
-              >
-                Clear Custom Key
-              </button>
-            )}
-
-            {showKeyFeedback && (
-              <div className="p-2 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-250 border-2 border-black rounded-xl text-center text-xs font-bold">
-                API settings updated!
-              </div>
-            )}
-          </div>
 
         </div>
 

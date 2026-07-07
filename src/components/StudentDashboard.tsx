@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  BookOpen, Search, Sparkles, Volume2, VolumeX, MessageSquare, HelpCircle, ArrowRight, Mic, MicOff, Check, X, RefreshCw, ClipboardList
+  BookOpen, Search, Sparkles, Volume2, VolumeX, MessageSquare, HelpCircle, ArrowRight, Check, X, RefreshCw, ClipboardList, GraduationCap, Clock, CheckCircle, XCircle, Library
 } from 'lucide-react';
-import { Course, Week, ChatMessage, QuizQuestion, Assignment, AssignmentSubmission, User } from '../types';
+import { Course, Week, ChatMessage, QuizQuestion, Assignment, AssignmentSubmission, User, Enrollment, ParsedVoiceCommand } from '../types';
 import { simplifyWeekContent, chatWithStudyBuddy } from '../lib/gemini';
 import StudentAssignments from './StudentAssignments';
 
@@ -11,7 +11,10 @@ interface StudentDashboardProps {
   currentUser: User;
   assignments: Assignment[];
   submissions: AssignmentSubmission[];
+  enrollments: Enrollment[];
+  voiceCommand: ParsedVoiceCommand | null;
   onSubmitAssignment: (submission: Omit<AssignmentSubmission, 'id' | 'submittedAt'>) => void;
+  onRequestEnrollment: (courseId: string) => void;
 }
 
 export default function StudentDashboard({
@@ -19,10 +22,13 @@ export default function StudentDashboard({
   currentUser,
   assignments,
   submissions,
+  enrollments,
+  voiceCommand,
   onSubmitAssignment,
+  onRequestEnrollment,
 }: StudentDashboardProps) {
   // Main navigation view
-  const [view, setView] = useState<'courses' | 'assignments'>('courses');
+  const [view, setView] = useState<'catalog' | 'my-courses' | 'assignments'>('my-courses');
   // Navigation & Browsing
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedWeekIndex, setSelectedWeekIndex] = useState<number>(0);
@@ -220,14 +226,76 @@ export default function StudentDashboard({
     setQuizSubmitted(true);
   };
 
+  // Enrollment helpers
+  const getEnrollment = (courseId: string) =>
+    enrollments.find(e => e.studentId === currentUser.id && e.courseId === courseId);
+
+  // Courses approved for this student
+  const enrolledCourseIds = new Set(
+    enrollments
+      .filter(e => e.studentId === currentUser.id && e.status === 'approved')
+      .map(e => e.courseId)
+  );
+
   // Filtering Logic
-  const filteredCourses = courses.filter(
+  const filteredCatalog = courses.filter(
+    (c) =>
+      c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.description.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const enrolledCourses = courses.filter(c => enrolledCourseIds.has(c.id));
+  const filteredEnrolled = enrolledCourses.filter(
     (c) =>
       c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const selectedWeek = selectedCourse?.weeks[selectedWeekIndex];
+
+  // Handle Voice Commands
+  useEffect(() => {
+    if (!voiceCommand) return;
+    const { command, params } = voiceCommand;
+    if (command === 'navigation:list' || command === 'navigation:catalog') {
+      setView('catalog');
+      setSelectedCourse(null);
+    } else if (command === 'navigation:assignments') {
+      setView('assignments');
+      setSelectedCourse(null);
+    } else if (command === 'navigation:students') {
+      setView('my-courses');
+      setSelectedCourse(null);
+    } else if (command === 'course:select') {
+      const match = courses.find(c =>
+        c.title.toLowerCase().includes(params?.courseTitle?.toLowerCase() || '')
+      );
+      if (match) {
+        setSelectedCourse(match);
+        setSelectedWeekIndex(0);
+        const isApproved = enrolledCourseIds.has(match.id);
+        if (isApproved) {
+          setView('my-courses');
+        } else {
+          setView('catalog');
+        }
+      }
+    } else if (command === 'course:simplify') {
+      handleSimplifyContent();
+    } else if (command === 'course:speak') {
+      if (selectedWeek) {
+        speak(selectedWeek.content, 'main');
+      }
+    } else if (command === 'quiz:select' && selectedWeek?.quiz && params?.questionNumber && params?.optionLetter) {
+      const questionIdx = params.questionNumber - 1;
+      const optionIdx = params.optionLetter.toUpperCase().charCodeAt(0) - 65;
+      if (questionIdx >= 0 && questionIdx < selectedWeek.quiz.length && optionIdx >= 0 && optionIdx < 4) {
+        handleSelectQuizOption(questionIdx, optionIdx);
+      }
+    } else if (command === 'quiz:submit' && selectedWeek?.quiz) {
+      handleSubmitQuiz(selectedWeek.quiz);
+    }
+  }, [voiceCommand]);
 
   return (
     <div className="w-full space-y-6">
@@ -241,26 +309,40 @@ export default function StudentDashboard({
               Learning Hub
             </h2>
             <p className="text-xs font-bold text-gray-500 dark:text-slate-400">
-              Select a course syllabus, listen to educational audios, and quiz yourself on your learning.
+              Browse all courses or view your enrolled classes.
             </p>
           </div>
 
-          {/* View toggle: Courses / Assignments */}
-          <div className="flex gap-2">
+          {/* Nav tabs */}
+          <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => setView('courses')}
+              onClick={() => setView('my-courses')}
               className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none flex items-center gap-1.5 ${
-                view === 'courses' ? 'bg-[#FFD600] text-black' : 'bg-white dark:bg-slate-800 text-black dark:text-white'
+                view === 'my-courses' ? 'bg-[#FFD600] text-black' : 'bg-white dark:bg-slate-800 text-black dark:text-white'
               }`}
             >
-              <BookOpen className="w-3.5 h-3.5" /> Courses
+              <GraduationCap className="w-3.5 h-3.5" />
+              My Courses
+              {enrolledCourseIds.size > 0 && (
+                <span className="bg-black text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">
+                  {enrolledCourseIds.size}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setView('catalog')}
+              className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none flex items-center gap-1.5 ${
+                view === 'catalog' ? 'text-white' : 'bg-white dark:bg-slate-800 text-black dark:text-white'
+              }`}
+              style={view === 'catalog' ? { backgroundColor: 'var(--accent)' } : {}}
+            >
+              <Library className="w-3.5 h-3.5" /> Course Catalog
             </button>
             <button
               onClick={() => { setView('assignments'); setSelectedCourse(null); }}
               className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none flex items-center gap-1.5 ${
-                view === 'assignments' ? 'text-white' : 'bg-white dark:bg-slate-800 text-black dark:text-white'
+                view === 'assignments' ? 'bg-emerald-500 text-white' : 'bg-white dark:bg-slate-800 text-black dark:text-white'
               }`}
-              style={view === 'assignments' ? { backgroundColor: 'var(--accent)' } : {}}
             >
               <ClipboardList className="w-3.5 h-3.5" /> My Assignments
               {assignments.filter(a => !submissions.find(s => s.assignmentId === a.id && s.studentId === currentUser.id)).length > 0 && (
@@ -275,7 +357,7 @@ export default function StudentDashboard({
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 stroke-[2.5]" />
             <input
               type="text"
-              placeholder="Search courses (e.g. JavaScript, AI, Biology)..."
+              placeholder={view === 'catalog' ? 'Search all courses...' : 'Search your enrolled courses...'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
@@ -287,10 +369,11 @@ export default function StudentDashboard({
       {/* Assignments view */}
       {view === 'assignments' && !selectedCourse && courses.length > 0 && (
         <StudentAssignments
-          courses={courses}
+          courses={enrolledCourses.length > 0 ? enrolledCourses : courses}
           currentUser={currentUser}
           assignments={assignments}
           submissions={submissions}
+          voiceCommand={voiceCommand}
           onSubmit={onSubmitAssignment}
         />
       )}
@@ -300,8 +383,8 @@ export default function StudentDashboard({
         </div>
       )}
 
-      {/* Main Study Desk View — only show when in courses view */}
-      {view === 'courses' && selectedCourse && selectedWeek ? (
+      {/* Main Study Desk View — only accessible from My Courses (enrolled) */}
+      {(view === 'my-courses') && selectedCourse && selectedWeek ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           
           {/* COURSE SYLLABUS MENU (3 cols) */}
@@ -637,51 +720,117 @@ export default function StudentDashboard({
           </div>
 
         </div>
-      ) : view === 'courses' ? (
-        /* COURSE CATALOG LISTING */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCourses.length === 0 ? (
-            <div className="col-span-full bg-white dark:bg-slate-900 border-4 border-black p-12 rounded-3xl text-center shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
-              <Search className="w-12 h-12 text-slate-350 dark:text-slate-700 mx-auto mb-3 stroke-[1.5]" />
-              <h4 className="text-sm font-black uppercase text-black dark:text-white">
-                No matching courses found
-              </h4>
-              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 max-w-xs mx-auto">
-                Try searching for another topic or have the instructor generate a new course outline in the Instructor Workspace.
+      ) : view === 'my-courses' && !selectedCourse ? (
+        /* MY COURSES — approved enrollments only */
+        <div className="space-y-4">
+          {filteredEnrolled.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 border-4 border-black p-12 rounded-3xl text-center shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] flex flex-col items-center gap-4">
+              <GraduationCap className="w-14 h-14 text-slate-300 dark:text-slate-700 stroke-[1.5]" />
+              <h4 className="text-sm font-black uppercase text-black dark:text-white">No Enrolled Courses Yet</h4>
+              <p className="text-xs text-gray-500 dark:text-slate-400 max-w-sm leading-relaxed">
+                Browse the <strong>Course Catalog</strong> and request enrollment. Once an instructor approves your request, the course will appear here.
               </p>
+              <button
+                onClick={() => setView('catalog')}
+                className="mt-2 px-5 py-2.5 bg-black text-white border-2 border-black rounded-2xl font-black uppercase text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] hover:bg-slate-800 flex items-center gap-2"
+              >
+                <Library className="w-3.5 h-3.5" />
+                Browse Course Catalog
+              </button>
             </div>
           ) : (
-            filteredCourses.map((course) => (
-              <div
-                key={course.id}
-                onClick={() => { setSelectedCourse(course); setSelectedWeekIndex(0); }}
-                className="bg-white dark:bg-slate-900 border-4 border-black p-5 rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] cursor-pointer hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-all flex flex-col justify-between min-h-[220px]"
-              >
-                <div className="space-y-2">
-                  <div className="flex items-start justify-between gap-1">
-                    <span className="bg-purple-100 dark:bg-purple-950 text-[#9333EA] dark:text-[#C084FC] border border-purple-300 text-[8px] font-black uppercase px-2 py-0.5 rounded">
-                      4 Weeks
-                    </span>
-                    <BookOpen className="w-4 h-4 text-purple-600 flex-shrink-0" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredEnrolled.map((course) => (
+                <div
+                  key={course.id}
+                  onClick={() => { setSelectedCourse(course); setSelectedWeekIndex(0); }}
+                  className="bg-white dark:bg-slate-900 border-4 border-black p-5 rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] cursor-pointer hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-all flex flex-col justify-between min-h-[220px]"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-1">
+                      <span className="bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 text-[8px] font-black uppercase px-2 py-0.5 rounded flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" /> Enrolled
+                      </span>
+                      <BookOpen className="w-4 h-4 text-purple-600 flex-shrink-0" />
+                    </div>
+                    <h3 className="text-sm font-black uppercase text-black dark:text-white leading-tight">{course.title}</h3>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400 line-clamp-3 leading-relaxed font-bold">{course.description}</p>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 pt-3 mt-4 text-[9px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-wide">
+                    <span className="truncate max-w-[70%]">Tutor: {course.instructorName}</span>
+                    <span className="text-[#9333EA] dark:text-[#C084FC] font-black uppercase">Study Now →</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : view === 'catalog' ? (
+        /* COURSE CATALOG — all courses with enrollment action */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredCatalog.length === 0 ? (
+            <div className="col-span-full bg-white dark:bg-slate-900 border-4 border-black p-12 rounded-3xl text-center shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+              <Search className="w-12 h-12 text-slate-350 dark:text-slate-700 mx-auto mb-3 stroke-[1.5]" />
+              <h4 className="text-sm font-black uppercase text-black dark:text-white">No matching courses found</h4>
+            </div>
+          ) : (
+            filteredCatalog.map((course) => {
+              const enrollment = getEnrollment(course.id);
+              const isApproved = enrollment?.status === 'approved';
+              const isPending = enrollment?.status === 'pending';
+              const isRejected = enrollment?.status === 'rejected';
+
+              return (
+                <div
+                  key={course.id}
+                  className="bg-white dark:bg-slate-900 border-4 border-black p-5 rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between min-h-[240px]"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-1">
+                      <span className="bg-purple-100 dark:bg-purple-950 text-[#9333EA] dark:text-[#C084FC] border border-purple-300 text-[8px] font-black uppercase px-2 py-0.5 rounded">
+                        {course.weeks.length} Week{course.weeks.length !== 1 ? 's' : ''}
+                      </span>
+                      <BookOpen className="w-4 h-4 text-purple-600 flex-shrink-0" />
+                    </div>
+                    <h3 className="text-sm font-black uppercase text-black dark:text-white leading-tight">{course.title}</h3>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400 line-clamp-3 leading-relaxed font-bold">{course.description}</p>
                   </div>
 
-                  <h3 className="text-sm font-black uppercase text-black dark:text-white leading-tight">
-                    {course.title}
-                  </h3>
-                  
-                  <p className="text-[11px] text-gray-500 dark:text-slate-400 line-clamp-3 leading-relaxed font-bold">
-                    {course.description}
-                  </p>
-                </div>
+                  <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-wide truncate">Tutor: {course.instructorName}</p>
 
-                <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 pt-3 mt-4 text-[9px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-wide">
-                  <span className="truncate max-w-[70%]">Tutor: {course.instructorName}</span>
-                  <span className="text-[#9333EA] dark:text-[#C084FC] hover:underline flex items-center gap-0.5 font-black uppercase">
-                    Enter Class →
-                  </span>
+                    {/* Enrollment CTA */}
+                    {isApproved ? (
+                      <button
+                        onClick={() => { setSelectedCourse(course); setSelectedWeekIndex(0); setView('my-courses'); }}
+                        className="w-full py-2 px-3 bg-emerald-400 hover:bg-emerald-500 text-black border-2 border-black rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" /> Enrolled — Open Course
+                      </button>
+                    ) : isPending ? (
+                      <div className="w-full py-2 px-3 bg-amber-100 dark:bg-amber-950 border-2 border-amber-400 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 text-amber-800 dark:text-amber-300">
+                        <Clock className="w-3.5 h-3.5" /> Pending Approval
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onRequestEnrollment(course.id); }}
+                        className={`w-full py-2 px-3 border-2 border-black rounded-xl font-black text-xs uppercase flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all ${
+                          isRejected
+                            ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                            : 'bg-[#FFD600] text-black hover:bg-[#FEE21E]'
+                        }`}
+                      >
+                        {isRejected ? (
+                          <><XCircle className="w-3.5 h-3.5" /> Re-request Enrollment</>
+                        ) : (
+                          <><GraduationCap className="w-3.5 h-3.5" /> Request Enrollment</>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       ) : null}

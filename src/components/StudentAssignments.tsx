@@ -3,13 +3,14 @@ import {
   ClipboardList, Upload, Mic, MicOff, Send, CheckCircle2,
   Clock, FileText, X, AlertCircle, ChevronDown, ChevronUp
 } from 'lucide-react';
-import { Assignment, AssignmentSubmission, Course, User } from '../types';
+import { Assignment, AssignmentSubmission, Course, User, ParsedVoiceCommand } from '../types';
 
 interface StudentAssignmentsProps {
   courses: Course[];
   currentUser: User;
   assignments: Assignment[];
   submissions: AssignmentSubmission[];
+  voiceCommand: ParsedVoiceCommand | null;
   onSubmit: (submission: Omit<AssignmentSubmission, 'id' | 'submittedAt'>) => void;
 }
 
@@ -18,6 +19,7 @@ export default function StudentAssignments({
   currentUser,
   assignments,
   submissions,
+  voiceCommand,
   onSubmit,
 }: StudentAssignmentsProps) {
   const [selectedCourseId, setSelectedCourseId] = useState<string>(courses[0]?.id ?? '');
@@ -121,6 +123,17 @@ export default function StudentAssignments({
     setSubmitSuccess(assignment.id);
     setTimeout(() => setSubmitSuccess(null), 4000);
   };
+
+  React.useEffect(() => {
+    if (!voiceCommand) return;
+    const { command } = voiceCommand;
+    if (command === 'assignment:submit' && expandedId) {
+      const activeAssignment = assignments.find(a => a.id === expandedId);
+      if (activeAssignment) {
+        handleSubmit(activeAssignment);
+      }
+    }
+  }, [voiceCommand]);
 
   const isDue = (dueDate: string) => new Date(dueDate) < new Date();
 

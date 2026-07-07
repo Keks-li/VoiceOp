@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Sparkles, BookOpen, Settings, LogOut, User as UserIcon, LogIn, Mic, RefreshCw, Key, Sun, Moon, UserPlus, Loader2
+  BookOpen, Settings, LogOut, LogIn, Sun, Moon, UserPlus, Loader2, Mic, MicOff
 } from 'lucide-react';
-import { ThemeMode, PrimaryColor, FontFamily, FontSize, User, Course, Assignment, AssignmentSubmission } from './types';
+import { ThemeMode, PrimaryColor, FontFamily, FontSize, User, Course, Assignment, AssignmentSubmission, Enrollment, ParsedVoiceCommand } from './types';
 import AccessibilityControls from './components/AccessibilityControls';
 import InstructorDashboard from './components/InstructorDashboard';
 import StudentDashboard from './components/StudentDashboard';
 import { supabase } from './lib/supabase';
 import * as db from './lib/db';
+import { parseVoiceCommand, generateAICourse } from './lib/gemini';
 
 const COURSES_STORAGE_KEY = 'voiceop_elearning_courses';
 const USER_STORAGE_KEY = 'voiceop_elearning_user';
@@ -252,6 +253,16 @@ export default function App() {
   // Assignments & Submissions
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [submissions, setSubmissions] = useState<AssignmentSubmission[]>([]);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+
+  // Voice Assistant States
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
+  const [lastVoiceCommand, setLastVoiceCommand] = useState<ParsedVoiceCommand | null>(null);
+  const [voiceControlEnabled, setVoiceControlEnabled] = useState(false);
+  const [showVoicePrompt, setShowVoicePrompt] = useState(false);
+
 
   // Login Form input states (Manual)
   const [loginEmail, setLoginEmail] = useState('');
@@ -281,6 +292,7 @@ export default function App() {
               email: session.user.email || '',
               role: profile.role,
             });
+            setShowVoicePrompt(true);
           }
         }
       } catch (err) {
@@ -304,6 +316,7 @@ export default function App() {
               email: session.user.email || '',
               role: profile.role,
             });
+            setShowVoicePrompt(true);
           }
         } catch (err) {
           console.error('Profile fetch error:', err);
@@ -316,6 +329,7 @@ export default function App() {
           setCourses(INITIAL_COURSES);
           setAssignments([]);
           setSubmissions([]);
+          setEnrollments([]);
           setIsLoading(false);
         }
       }
@@ -353,6 +367,12 @@ export default function App() {
 
         const fetchedSubmissions = await db.fetchSubmissions(currentUser.id, currentUser.role);
         if (active) setSubmissions(fetchedSubmissions);
+
+        // Load enrollments — students see their own, instructors see all
+        const fetchedEnrollments = currentUser.role === 'student'
+          ? await db.fetchMyEnrollments(currentUser.id)
+          : await db.fetchAllEnrollments();
+        if (active) setEnrollments(fetchedEnrollments);
       } catch (err) {
         console.error('Error fetching data from Supabase:', err);
       }
@@ -575,6 +595,220 @@ export default function App() {
     }
   };
 
+  // ── Enrollment Handlers ───────────────────────────────────────────────────
+  const handleRequestEnrollment = async (courseId: string) => {
+    if (!currentUser) return;
+    try {
+      const enrollment = await db.requestEnrollment(currentUser.id, courseId, currentUser.name);
+      setEnrollments((prev) => {
+        // Replace if exists (re-request after rejection), else add
+        const exists = prev.find(e => e.studentId === currentUser.id && e.courseId === courseId);
+        if (exists) return prev.map(e => e.id === exists.id ? enrollment : e);
+        return [enrollment, ...prev];
+      });
+    } catch (err: any) {
+      alert('Failed to request enrollment: ' + err.message);
+    }
+  };
+
+  const handleUpdateEnrollments = async (ids: string[], status: 'approved' | 'rejected') => {
+    try {
+      await db.updateEnrollmentStatus(ids, status);
+      setEnrollments((prev) =>
+        prev.map((e) => ids.includes(e.id) ? { ...e, status } : e)
+      );
+    } catch (err: any) {
+      alert('Failed to update enrollment: ' + err.message);
+    }
+  };
+
+  // ── Voice Control & Intent Parser ─────────────────────────────────────────
+
+  const speakConfirmation = (text: string) => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      
+      const savedRate = localStorage.getItem('voiceop_tts_rate');
+      const savedVoice = localStorage.getItem('voiceop_tts_voice_name');
+      
+      if (savedRate) utterance.rate = parseFloat(savedRate);
+      if (savedVoice) {
+        const voices = window.speechSynthesis.getVoices();
+        const matched = voices.find(v => v.name === savedVoice);
+        if (matched) utterance.voice = matched;
+      }
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const handleVoiceCommandProcess = async (transcript: string) => {
+    if (isProcessingVoice) return;
+    
+    const cleanLower = transcript.toLowerCase().trim();
+    if (!cleanLower) return;
+
+    // Local pre-filtering keywords to save API quota from background noise and casual chatter
+    const commandKeywords = [
+      'mode', 'theme', 'dark', 'light', 'night', 'day', 'black', 'white',
+      'font', 'text', 'bigger', 'smaller', 'larger', 'shrink', 'zoom',
+      'course', 'class', 'catalog', 'library', 'syllabus', 'assignments', 'homework', 'task', 'students', 'roster', 'request', 'create',
+      'open', 'select', 'enter', 'choose', 'go to',
+      'simplify', 'easier', 'speak', 'read', 'audio', 'play',
+      'generate', 'ai',
+      'option', 'answer', 'question', 'number', 'submit'
+    ];
+
+    const hasKeyword = commandKeywords.some(kw => cleanLower.includes(kw));
+    if (!hasKeyword) {
+      // Ignore background noise silently without calling Gemini
+      return;
+    }
+
+    setIsProcessingVoice(true);
+    setVoiceStatus('Processing intent with Gemini...');
+    try {
+      const parsed = await parseVoiceCommand(transcript);
+      if (parsed.command === 'unknown') {
+        setVoiceStatus('Sorry, command not understood.');
+        speakConfirmation('Sorry, I did not understand that command.');
+      } else {
+        // Handle accessibility / theme operations directly in App.tsx
+        if (parsed.command === 'accessibility:theme_dark') {
+          setThemeMode('dark');
+          setVoiceStatus('Theme set to Dark Mode.');
+          speakConfirmation('Switching to dark mode.');
+        } else if (parsed.command === 'accessibility:theme_light') {
+          setThemeMode('light');
+          setVoiceStatus('Theme set to Light Mode.');
+          speakConfirmation('Switching to light mode.');
+        } else if (parsed.command === 'accessibility:font_larger') {
+          handleMakeLarger();
+          setVoiceStatus('Increased font size.');
+          speakConfirmation('Increasing text size.');
+        } else if (parsed.command === 'accessibility:font_smaller') {
+          handleMakeSmaller();
+          setVoiceStatus('Decreased font size.');
+          speakConfirmation('Decreasing text size.');
+        } else {
+          // Propagate other commands (navigation, simplifies, etc) to dashboards
+          setLastVoiceCommand({ ...parsed, timestamp: Date.now() });
+          
+          let confirmationText = `Navigated to ${parsed.command.split(':')[1]}`;
+          if (parsed.command === 'course:select') {
+            confirmationText = `Opening course ${parsed.params?.courseTitle || ''}`;
+          } else if (parsed.command === 'course:simplify') {
+            confirmationText = 'Simplifying course syllabus.';
+          } else if (parsed.command === 'course:speak') {
+            confirmationText = 'Reading lesson aloud.';
+          } else if (parsed.command === 'course:create_ai') {
+            confirmationText = `Generating curriculum for ${parsed.params?.topic || ''}`;
+          }
+          setVoiceStatus(confirmationText);
+          speakConfirmation(confirmationText);
+        }
+      }
+    } catch (err: any) {
+      console.error('Error in voice command handler:', err);
+      if (err.message?.includes('429') || err.message?.toLowerCase().includes('quota') || err.status === 429) {
+        setVoiceStatus('Gemini rate limit exceeded. Please wait 60s.');
+        speakConfirmation('Gemini rate limit exceeded. Please try again in one minute.');
+      } else {
+        setVoiceStatus('Failed to process voice command.');
+      }
+    } finally {
+      setIsProcessingVoice(false);
+      setTimeout(() => setVoiceStatus(null), 4000);
+    }
+  };
+
+  // Self-healing continuous background voice loop
+  useEffect(() => {
+    let recognition: any = null;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (voiceControlEnabled && SpeechRecognition) {
+      const startListening = () => {
+        if (recognition) return;
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = () => {
+          setIsVoiceActive(true);
+          setVoiceStatus('Listening for command...');
+        };
+
+        recognition.onresult = (e: any) => {
+          const transcript = e.results[0][0].transcript;
+          if (transcript) {
+            handleVoiceCommandProcess(transcript);
+          }
+        };
+
+        recognition.onerror = (err: any) => {
+          console.error('Speech Recognition Error:', err);
+          if (err.error === 'not-allowed') {
+            setVoiceControlEnabled(false);
+            setVoiceStatus('Microphone permission denied.');
+            setTimeout(() => setVoiceStatus(null), 3000);
+          }
+        };
+
+        recognition.onend = () => {
+          setIsVoiceActive(false);
+          recognition = null;
+          // Only restart loop if voice control is still enabled
+          if (voiceControlEnabled) {
+            setTimeout(startListening, 300);
+          }
+        };
+
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      startListening();
+    }
+
+    return () => {
+      if (recognition) {
+        recognition.onend = null;
+        recognition.stop();
+      }
+      setIsVoiceActive(false);
+    };
+  }, [voiceControlEnabled]);
+
+  const toggleVoiceCommandListening = () => {
+    setVoiceControlEnabled(prev => !prev);
+  };
+
+  // Helper for generating course by AI via voice commands
+  const handleAddCourseAIVoice = async (topic: string) => {
+    try {
+      // Just call create directly
+      setIsLoading(true);
+      const newCourse = await generateAICourse(topic);
+      await handleAddCourse(newCourse);
+      // Trigger selection
+      setLastVoiceCommand({
+        command: 'course:select',
+        params: { courseTitle: newCourse.title },
+        timestamp: Date.now()
+      });
+    } catch (err: any) {
+      alert('Failed to generate course syllabus: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Font Family class mappings
   const fontClasses = {
     sans: 'font-sans',
@@ -726,6 +960,23 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Voice Assistant Mic Button */}
+          {currentUser && (
+            <button
+              onClick={toggleVoiceCommandListening}
+              className={`p-2.5 border-2 border-black rounded-xl hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] active:translate-x-0 active:translate-y-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex items-center justify-center transition-all ${
+                voiceControlEnabled 
+                  ? isVoiceActive
+                    ? 'bg-rose-500 text-white animate-pulse'
+                    : 'bg-emerald-400 text-black' 
+                  : 'bg-slate-200 text-slate-500 hover:bg-slate-350 dark:bg-slate-800 dark:text-slate-400'
+              }`}
+              title={voiceControlEnabled ? 'Mute/Disable Background Voice Control' : 'Enable Background Voice Control'}
+            >
+              {voiceControlEnabled ? <Mic className="w-4 h-4 stroke-[2.5]" /> : <MicOff className="w-4 h-4 stroke-[2.5]" />}
+            </button>
+          )}
+
           {/* Accessibility desk toggle */}
           <button
             onClick={() => setIsSettingsOpen(true)}
@@ -759,6 +1010,17 @@ export default function App() {
         </div>
       </header>
 
+      {/* Voice Status Overlay Notification Banner */}
+      {voiceStatus && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-[#9333EA] text-white border-4 border-black rounded-2xl flex items-center gap-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] font-black text-xs uppercase tracking-wider animate-bounce">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+          </span>
+          {voiceStatus}
+        </div>
+      )}
+
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 flex flex-col justify-start">
         
@@ -768,12 +1030,16 @@ export default function App() {
               courses={courses}
               assignments={assignments}
               submissions={submissions}
+              enrollments={enrollments}
+              voiceCommand={lastVoiceCommand}
               onAddCourse={handleAddCourse}
               onDeleteCourse={handleDeleteCourse}
               onUpdateCourse={handleUpdateCourse}
               onAddAssignment={handleAddAssignment}
               onDeleteAssignment={handleDeleteAssignment}
               onGradeSubmission={handleGradeSubmission}
+              onUpdateEnrollments={handleUpdateEnrollments}
+              onAddCourseAI={handleAddCourseAIVoice}
             />
           ) : (
             <StudentDashboard
@@ -781,28 +1047,31 @@ export default function App() {
               currentUser={currentUser}
               assignments={assignments}
               submissions={submissions}
+              enrollments={enrollments}
+              voiceCommand={lastVoiceCommand}
               onSubmitAssignment={handleStudentSubmit}
+              onRequestEnrollment={handleRequestEnrollment}
             />
           )
         ) : (
           /* SIGN IN / SIGN UP SCREEN */
-          <div className="max-w-md w-full mx-auto my-auto p-6 md:p-8 bg-white dark:bg-slate-900 border-4 border-black rounded-3xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col gap-6">
+          <div className="max-w-md w-full mx-auto my-auto p-6 md:p-8 bg-white dark:bg-slate-900 border-4 border-black rounded-3xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col gap-5">
             
-            <div className="text-center space-y-1.5">
+            <div className="text-center space-y-2">
               <span className="inline-block p-3 bg-[#FFD600] text-black border-2 border-black rounded-2xl shadow-[3px_3px_0px_0px_#000]">
                 {authMode === 'login' ? <LogIn className="w-6 h-6 stroke-[2.5]" /> : <UserPlus className="w-6 h-6 stroke-[2.5]" />}
               </span>
-              <h2 className="text-xl font-black uppercase tracking-tight text-black dark:text-white">
-                {authMode === 'login' ? 'Access Classroom Studio' : 'Create an Account'}
+              <h2 className="text-2xl font-black uppercase tracking-tight text-black dark:text-white">
+                {authMode === 'login' ? 'Welcome Back' : 'Create Account'}
               </h2>
-              <p className="text-xs text-gray-500 dark:text-slate-400 font-bold">
-                {authMode === 'login' 
-                  ? 'Log in to write coursework or browse classes hands-free.' 
-                  : 'Register a new student or instructor profile to begin.'}
+              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                {authMode === 'login'
+                  ? 'Sign in to your VoiceOp classroom.'
+                  : 'Register to start learning or teaching.'}
               </p>
             </div>
 
-            {/* Toggle Log In / Create Account buttons */}
+            {/* Sign In / Register tab switcher */}
             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-950 border-2 border-black rounded-xl">
               <button
                 type="button"
@@ -828,80 +1097,64 @@ export default function App() {
               </button>
             </div>
 
-            {/* Toggle Student / Instructor buttons */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
-                Select Your Role
-              </label>
-              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-950 border-2 border-black rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => { setLoginRole('student'); }}
-                  className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${
-                    loginRole === 'student'
-                      ? 'bg-black text-white border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
-                      : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
-                  }`}
-                >
-                  Student Hub
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setLoginRole('instructor'); }}
-                  className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${
-                    loginRole === 'instructor'
-                      ? 'bg-black text-white border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
-                      : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
-                  }`}
-                >
-                  Teacher Studio
-                </button>
-              </div>
-            </div>
-
-            {/* Login form */}
+            {/* Form */}
             <form onSubmit={handleManualLoginSubmit} className="space-y-4">
+              {/* Name + Role only shown on signup */}
               {authMode === 'signup' && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={loginRole === 'student' ? 'Alex Student' : 'Sarah Jenkins'}
-                    value={signupName}
-                    onChange={(e) => setSignupName(e.target.value)}
-                    className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
-                    required
-                  />
-                </div>
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Full Name</label>
+                    <input
+                      type="text"
+                      placeholder="Your full name"
+                      value={signupName}
+                      onChange={(e) => setSignupName(e.target.value)}
+                      className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-semibold text-sm text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-black"
+                      required
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">I am a</label>
+                    <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-950 border-2 border-black rounded-xl">
+                      <button type="button" onClick={() => setLoginRole('student')}
+                        className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${
+                          loginRole === 'student' ? 'bg-black text-white border-black' : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
+                        }`}>
+                        Student
+                      </button>
+                      <button type="button" onClick={() => setLoginRole('instructor')}
+                        className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${
+                          loginRole === 'instructor' ? 'bg-black text-white border-black' : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
+                        }`}>
+                        Instructor
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
-                  Email Address
-                </label>
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Email Address</label>
                 <input
                   type="email"
-                  placeholder={loginRole === 'student' ? 'student@voiceop.edu' : 'instructor@voiceop.edu'}
+                  placeholder="you@example.com"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
-                  className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                  className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-semibold text-sm text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-black"
                   required
                 />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">
-                  Password
-                </label>
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Password</label>
                 <input
                   type="password"
                   placeholder="••••••••"
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
-                  className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                  className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-semibold text-sm text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-black"
                   required
+                  minLength={6}
                 />
               </div>
 
@@ -911,40 +1164,16 @@ export default function App() {
                 </div>
               )}
 
-              {/* Submit Buttons */}
-              <div className="space-y-2 pt-2">
-                <button
-                  type="submit"
-                  className="w-full py-3 px-4 bg-[#FFD600] text-black border-2 border-black rounded-2xl font-black uppercase tracking-wider text-xs shadow-[3px_3px_0px_0px_#000000] hover:bg-[#FEE21E] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[0px_0px_0px_0px_#000000] transition-all flex items-center justify-center gap-1.5"
-                >
-                  {authMode === 'login' ? 'Enter Classroom' : 'Create Account'}
-                </button>
-
-                {/* Pre-fill Quick Demo login button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (loginRole === 'student') {
-                      setLoginEmail('student@voiceop.edu');
-                      setLoginPassword('password123');
-                      setSignupName('Alex Student');
-                    } else {
-                      setLoginEmail('instructor@voiceop.edu');
-                      setLoginPassword('password123');
-                      setSignupName('Sarah Jenkins');
-                    }
-                  }}
-                  className="w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-black dark:text-white border-2 border-black rounded-2xl font-bold uppercase text-[10px] tracking-wide"
-                >
-                  Autofill Demo Credentials
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3 px-4 bg-[#FFD600] text-black border-2 border-black rounded-2xl font-black uppercase tracking-wider text-sm shadow-[3px_3px_0px_0px_#000000] hover:bg-[#FEE21E] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed mt-2"
+              >
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {authMode === 'login' ? 'Sign In' : 'Create Account'}
+              </button>
             </form>
 
-            <div className="text-center font-bold text-[10px] text-gray-500 border-t border-slate-150 dark:border-slate-800 pt-3 leading-relaxed">
-              💡 <strong>Visibility settings:</strong> Use the display controls in the top header toolbar to adjust text sizes and color themes for better readability.
-            </div>
-            
           </div>
         )
         
@@ -985,6 +1214,36 @@ export default function App() {
         setTtsVoiceName={setTtsVoiceName}
       />
 
+      {/* Voice Control Login Prompt Modal */}
+      {showVoicePrompt && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border-4 border-black p-6 rounded-3xl max-w-sm w-full shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] text-center space-y-4">
+            <div className="w-12 h-12 bg-amber-400 border-2 border-black rounded-full flex items-center justify-center mx-auto text-black">
+              <Mic className="w-6 h-6 animate-pulse" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-black uppercase text-black dark:text-white">Enable Voice Control?</h4>
+              <p className="text-[11px] text-gray-500 dark:text-slate-400 font-bold leading-relaxed">
+                You can control VoiceOp using speech commands (e.g. "go to assignments", "switch to dark mode", "simplify lesson"). Would you like to enable the background voice listener?
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                onClick={() => { setVoiceControlEnabled(true); setShowVoicePrompt(false); speakConfirmation("Voice assistant enabled."); }}
+                className="w-full py-2 px-4 bg-[#FFD600] text-black border-2 border-black rounded-xl font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-[#FEE21E] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all flex items-center justify-center gap-1.5"
+              >
+                <Mic className="w-3.5 h-3.5" /> Enable Voice Assistant
+              </button>
+              <button
+                onClick={() => { setVoiceControlEnabled(false); setShowVoicePrompt(false); }}
+                className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-black dark:text-white border-2 border-black rounded-xl font-black uppercase text-xs shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all"
+              >
+                No, Keep Mic Disabled
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
