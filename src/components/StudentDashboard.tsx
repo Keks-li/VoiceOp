@@ -108,7 +108,7 @@ export default function StudentDashboard({
   };
 
   // Quiz State
-  const [quizAnswers, setQuizAnswers] = useState<number[]>([]);
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, number | string>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [quizScore, setQuizScore] = useState<number | null>(null);
 
@@ -243,7 +243,8 @@ export default function StudentDashboard({
         selectedCourse.title,
         lessonContext,
         userMessage.text,
-        chatHistory.map(m => ({ sender: m.sender, text: m.text }))
+        chatHistory.map(m => ({ sender: m.sender, text: m.text })),
+        selectedCourse.instructorName
       );
 
       const aiMessage: ChatMessage = {
@@ -263,28 +264,55 @@ export default function StudentDashboard({
   };
 
   // Quiz Handling
-  const handleSelectQuizOption = (questionIdx: number, optionIdx: number) => {
+  const handleSelectQuizOption = (questionIdx: number, value: number | string) => {
     if (quizSubmitted) return;
-    const newAnswers = [...quizAnswers];
-    newAnswers[questionIdx] = optionIdx;
-    setQuizAnswers(newAnswers);
+    setQuizAnswers((prev) => ({ ...prev, [questionIdx]: value }));
   };
 
-  const handleSubmitQuiz = (questions: QuizQuestion[]) => {
-    if (quizAnswers.length < questions.length) {
+  const handleSubmitQuiz = async (questions: QuizQuestion[]) => {
+    const unanswered = questions.some((_, idx) => quizAnswers[idx] === undefined || quizAnswers[idx] === '');
+    if (unanswered) {
       alert('Please answer all questions before submitting.');
       return;
     }
     
     let correctCount = 0;
+    let mcqCount = 0;
     questions.forEach((q, idx) => {
-      if (quizAnswers[idx] === q.correctAnswerIndex) {
-        correctCount++;
+      if ((q.type || 'mcq') === 'mcq') {
+        mcqCount++;
+        if (quizAnswers[idx] === q.correctAnswerIndex) {
+          correctCount++;
+        }
       }
     });
 
-    setQuizScore(correctCount);
-    setQuizSubmitted(true);
+    const answersSummary = questions.map((q, idx) => {
+      const isEssay = q.type === 'essay';
+      const ans = quizAnswers[idx];
+      if (isEssay) {
+        return `Question ${idx + 1} [Essay]: ${q.question}\nStudent Answer: "${ans || 'No response provided.'}"`;
+      } else {
+        const isCorrect = ans === q.correctAnswerIndex;
+        const chosenOpt = ans !== undefined ? q.options[ans as number] : 'None';
+        const correctOpt = q.options[q.correctAnswerIndex];
+        return `Question ${idx + 1} [MCQ]: ${q.question}\nStudent Answer: ${String.fromCharCode(65 + (ans as number))} (${chosenOpt}) - ${isCorrect ? 'Correct' : `Incorrect (Correct is ${correctOpt})`}`;
+      }
+    }).join('\n\n');
+
+    try {
+      await onSubmitAssignment({
+        assignmentId: `quiz_${selectedCourse!.id}_${selectedWeek.weekNumber}`,
+        courseId: selectedCourse!.id,
+        studentId: currentUser.id,
+        studentName: currentUser.name,
+        textContent: `--- WEEK ${selectedWeek.weekNumber} QUIZ SUBMISSION ---\nScore: ${correctCount}/${mcqCount} MCQ Correct\n\n${answersSummary}`,
+      });
+      setQuizScore(correctCount);
+      setQuizSubmitted(true);
+    } catch (err: any) {
+      alert('Failed to submit quiz responses: ' + err.message);
+    }
   };
 
   // Enrollment helpers
@@ -470,20 +498,33 @@ export default function StudentDashboard({
               </div>
 
               <div className="space-y-1.5 border-t border-slate-200 dark:border-slate-800 pt-3">
-                {selectedCourse.weeks.map((week, idx) => (
-                  <button
-                    key={week.id}
-                    onClick={() => { setSelectedWeekIndex(idx); }}
-                    className={`w-full p-2.5 border-2 border-black rounded-xl text-left text-xs transition-all font-bold ${
-                      selectedWeekIndex === idx
-                        ? 'bg-[#FFD600] text-black shadow-[2px_2px_0px_0px_#000000]'
-                        : 'bg-slate-50 dark:bg-slate-950 text-black dark:text-white hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="font-black text-[9px] uppercase tracking-wide">Week {week.weekNumber}</div>
-                    <div className="truncate">{week.title}</div>
-                  </button>
-                ))}
+                {selectedCourse.weeks.map((week, idx) => {
+                  const isUnlocked = idx === 0 || submissions.some(s => 
+                    s.studentId === currentUser.id && 
+                    s.assignmentId === `quiz_${selectedCourse.id}_${selectedCourse.weeks[idx - 1].weekNumber}`
+                  );
+
+                  return (
+                    <button
+                      key={week.id}
+                      disabled={!isUnlocked}
+                      onClick={() => { setSelectedWeekIndex(idx); }}
+                      className={`w-full p-2.5 border-2 rounded-xl text-left text-xs transition-all font-bold ${
+                        !isUnlocked
+                          ? 'border-dashed border-slate-300 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 text-slate-400 dark:text-slate-650 cursor-not-allowed opacity-60'
+                          : selectedWeekIndex === idx
+                            ? 'bg-[#FFD600] text-black border-black shadow-[2px_2px_0px_0px_#000000]'
+                            : 'bg-slate-50 dark:bg-slate-950 text-black dark:text-white border-black hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between font-black text-[9px] uppercase tracking-wide">
+                        <span>Week {week.weekNumber}</span>
+                        {!isUnlocked && <span className="text-[10px] text-slate-400">🔒 Locked</span>}
+                      </div>
+                      <div className="truncate">{week.title}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -606,8 +647,10 @@ export default function StudentDashboard({
                           <button
                             type="button"
                             onClick={() => {
-                              const text = `Question ${qIdx + 1}: ${q.question}. Options are: ` + 
-                                q.options.map((opt, oIdx) => `${String.fromCharCode(65 + oIdx)}. ${opt}`).join(", ");
+                              const text = q.type === 'essay'
+                                ? `Question ${qIdx + 1}: ${q.question}. This is an essay question. Please type or speak your response.`
+                                : `Question ${qIdx + 1}: ${q.question}. Options are: ` + 
+                                  q.options.map((opt, oIdx) => `${String.fromCharCode(65 + oIdx)}. ${opt}`).join(", ");
                               speak(text, `quiz-${qIdx}`);
                             }}
                             className={`p-1 border border-black rounded-lg transition-all flex items-center justify-center cursor-pointer ${
@@ -625,35 +668,72 @@ export default function StudentDashboard({
                           </button>
                         </div>
                         
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {q.options.map((opt, oIdx) => {
-                            const isSelected = quizAnswers[qIdx] === oIdx;
-                            const isCorrect = q.correctAnswerIndex === oIdx;
-                            
-                            let optBg = 'bg-white dark:bg-slate-900';
-                            if (isSelected) optBg = 'bg-amber-100 dark:bg-amber-950/40 border-amber-500';
-                            if (quizSubmitted) {
-                              if (isCorrect) optBg = 'bg-emerald-100 dark:bg-emerald-950/40 border-emerald-500 text-emerald-800 dark:text-emerald-250';
-                              else if (isSelected) optBg = 'bg-rose-100 dark:bg-rose-950/40 border-rose-500 text-rose-800 dark:text-rose-250';
-                            }
+                        {(q.type || 'mcq') === 'mcq' ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {q.options.map((opt, oIdx) => {
+                              const isSelected = quizAnswers[qIdx] === oIdx;
+                              const isCorrect = q.correctAnswerIndex === oIdx;
+                              
+                              let optBg = 'bg-white dark:bg-slate-900';
+                              if (isSelected) optBg = 'bg-amber-100 dark:bg-amber-950/40 border-amber-500';
+                              if (quizSubmitted) {
+                                if (isCorrect) optBg = 'bg-emerald-100 dark:bg-emerald-950/40 border-emerald-500 text-emerald-800 dark:text-emerald-250';
+                                else if (isSelected) optBg = 'bg-rose-100 dark:bg-rose-950/40 border-rose-500 text-rose-800 dark:text-rose-250';
+                              }
 
-                            return (
-                              <button
-                                key={oIdx}
-                                onClick={() => handleSelectQuizOption(qIdx, oIdx)}
+                              return (
+                                <button
+                                  key={oIdx}
+                                  onClick={() => handleSelectQuizOption(qIdx, oIdx)}
+                                  disabled={quizSubmitted}
+                                  className={`p-2.5 border-2 border-black rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2 ${optBg}`}
+                                >
+                                  <span className={`w-5 h-5 rounded-full border border-black flex items-center justify-center text-[10px] font-black ${
+                                    isSelected ? 'bg-[#FFD600]' : 'bg-slate-100'
+                                  }`}>
+                                    {String.fromCharCode(65 + oIdx)}
+                                  </span>
+                                  {opt}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex items-start gap-2">
+                              <textarea
+                                rows={3}
+                                value={(quizAnswers[qIdx] as string) || ''}
                                 disabled={quizSubmitted}
-                                className={`p-2.5 border-2 border-black rounded-xl text-left text-xs font-bold transition-all flex items-center gap-2 ${optBg}`}
-                              >
-                                <span className={`w-5 h-5 rounded-full border border-black flex items-center justify-center text-[10px] font-black ${
-                                  isSelected ? 'bg-[#FFD600]' : 'bg-slate-100'
-                                }`}>
-                                  {String.fromCharCode(65 + oIdx)}
-                                </span>
-                                {opt}
-                              </button>
-                            );
-                          })}
-                        </div>
+                                onChange={(e) => handleSelectQuizOption(qIdx, e.target.value)}
+                                placeholder={quizSubmitted ? "No answer submitted." : "Type or speak your essay response here..."}
+                                className="flex-1 px-3.5 py-2.5 border-2 border-black rounded-xl bg-white dark:bg-slate-900 font-bold text-xs text-black dark:text-white focus:outline-none"
+                              />
+                              {!quizSubmitted && (
+                                <button
+                                  type="button"
+                                  onClick={() => startDictation(`quizEssay-${qIdx}`, (text) => {
+                                    const cur = (quizAnswers[qIdx] as string) || '';
+                                    handleSelectQuizOption(qIdx, cur ? cur + ' ' + text : text);
+                                  })}
+                                  className={`p-2.5 border-2 border-black rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-[2px_2px_0px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none ${
+                                    activeDictationField === `quizEssay-${qIdx}`
+                                      ? 'bg-rose-500 text-white animate-pulse shadow-none translate-x-0.5 translate-y-0.5'
+                                      : 'bg-[#FFD600] text-black hover:bg-[#FEE21E]'
+                                  }`}
+                                  title={activeDictationField === `quizEssay-${qIdx}` ? 'Stop Listening' : 'Dictate Answer (STT)'}
+                                >
+                                  {activeDictationField === `quizEssay-${qIdx}` ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                                </button>
+                              )}
+                            </div>
+                            {quizSubmitted && (
+                              <div className="p-2 border-2 border-black bg-indigo-50 dark:bg-slate-900 text-[10px] font-black uppercase text-indigo-700 rounded-xl">
+                                📝 Free-response answer submitted. The instructor will view and grade this assessment.
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -662,9 +742,9 @@ export default function StudentDashboard({
                     {!quizSubmitted ? (
                       <button
                         onClick={() => handleSubmitQuiz(selectedWeek.quiz!)}
-                        disabled={quizAnswers.length < selectedWeek.quiz.length}
+                        disabled={Object.keys(quizAnswers).length < selectedWeek.quiz.length}
                         className={`w-full sm:w-auto px-6 py-2.5 border-2 border-black rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-[2px_2px_0px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[0px_0px_0px_0px_#000000] ${
-                          quizAnswers.length < selectedWeek.quiz.length
+                          Object.keys(quizAnswers).length < selectedWeek.quiz.length
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-emerald-400 hover:bg-emerald-500 text-black'
                         }`}
@@ -674,14 +754,14 @@ export default function StudentDashboard({
                     ) : (
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-black uppercase text-slate-500">
-                          Quiz score:
+                          Quiz graded MCQs score:
                         </span>
                         <span className="text-sm font-black px-3.5 py-1.5 border-2 border-black bg-[#FFD600] rounded-full text-black">
-                          {quizScore} / {selectedWeek.quiz.length} Correct
+                          {quizScore} / {selectedWeek.quiz.filter(q => (q.type || 'mcq') === 'mcq').length} Correct
                         </span>
                         <button
                           onClick={() => {
-                            setQuizAnswers([]);
+                            setQuizAnswers({});
                             setQuizSubmitted(false);
                             setQuizScore(null);
                           }}

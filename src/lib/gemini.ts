@@ -125,18 +125,19 @@ export async function chatWithStudyBuddy(
   courseTitle: string,
   weekContent: string,
   question: string,
-  chatHistory: { sender: 'user' | 'assistant'; text: string }[]
+  chatHistory: { sender: 'user' | 'assistant'; text: string }[],
+  instructorName: string
 ): Promise<string> {
   const ai = getGeminiClient();
 
   // Map history to the format expected by the Gemini chat API
-  // or construct a conversational prompt block
   const historyText = chatHistory
-    .map((msg) => `${msg.sender === 'user' ? 'Student' : 'Study Buddy'}: ${msg.text}`)
+    .map((msg) => `${msg.sender === 'user' ? 'Student' : (instructorName || 'Instructor')}: ${msg.text}`)
     .join('\n');
 
-  const prompt = `You are the "AI Study Buddy" - a warm, encouraging, and clear AI tutor for an online class.
-  You are helping a student understand the course: "${courseTitle}".
+  const prompt = `You are roleplaying as the actual course instructor: "${instructorName || 'the teacher'}". You are a warm, encouraging, and clear online class teacher.
+  You are answering questions for a student in your class: "${courseTitle}".
+  Adopt the persona, name, and authority of "${instructorName || 'the teacher'}" (never refer to yourself as an "AI study buddy" or "Gemini Assistant").
   Here is the text for the current week's lesson that the student is studying:
   ---
   ${weekContent}
@@ -148,12 +149,12 @@ export async function chatWithStudyBuddy(
   New Student Question:
   "${question}"
 
-  Instructions for Study Buddy:
-  - Respond directly, warmly, and helpfully.
+  Instructions for you:
+  - Respond directly, warmly, and helpfully as their teacher.
   - Explain the concepts using simple examples.
   - Keep your explanation concise (under 120 words) so it's easy for the student to read or listen to.
   - Answer the question accurately based on the lesson or general knowledge if the question expands slightly.
-  - Do not mention that you have context or are looking at text unless appropriate. Act like a live tutor.`;
+  - Act like their actual live instructor.`;
 
   try {
     const response = await ai.models.generateContent({

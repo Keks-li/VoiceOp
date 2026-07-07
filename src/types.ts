@@ -15,6 +15,7 @@ export interface User {
 
 export interface QuizQuestion {
   question: string;
+  type?: 'mcq' | 'essay';
   options: string[];
   correctAnswerIndex: number;
 }

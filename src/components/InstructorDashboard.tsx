@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Plus, BookOpen, Sparkles, BookOpenCheck, Trash2, Edit2, Volume2, CheckCircle, Circle, PlusCircle, HelpCircle, Users, GraduationCap, XCircle, UserCheck, Search, Mic, MicOff
 } from 'lucide-react';
-import { Course, Week, QuizQuestion, Assignment, AssignmentSubmission, Enrollment, ParsedVoiceCommand } from '../types';
+import { Course, Week, QuizQuestion, Assignment, AssignmentSubmission, Enrollment, ParsedVoiceCommand, User } from '../types';
 import { generateAICourse } from '../lib/gemini';
 import { fetchAllStudents, StudentWithCourses } from '../lib/db';
 import InstructorAssignments from './InstructorAssignments';
@@ -13,6 +13,7 @@ interface InstructorDashboardProps {
   submissions: AssignmentSubmission[];
   enrollments: Enrollment[];
   voiceCommand: ParsedVoiceCommand | null;
+  currentUser: User | null;
   onAddCourse: (course: Course) => void;
   onDeleteCourse: (courseId: string) => void;
   onUpdateCourse: (course: Course) => void;
@@ -29,6 +30,7 @@ export default function InstructorDashboard({
   submissions,
   enrollments,
   voiceCommand,
+  currentUser,
   onAddCourse,
   onDeleteCourse,
   onUpdateCourse,
@@ -67,6 +69,9 @@ export default function InstructorDashboard({
   // STT Dictation State
   const [activeDictationField, setActiveDictationField] = useState<string | null>(null);
   const dictationRecRef = useRef<any>(null);
+
+  // Grade form state for student card inline grading
+  const [gradeDrafts, setGradeDrafts] = useState<Record<string, { grade: string; feedback: string }>>({});
 
   const startDictation = (fieldId: string, onTranscript: (text: string) => void) => {
     const SpeechRecognition =
@@ -240,7 +245,7 @@ export default function InstructorDashboard({
 
     try {
       const generated = await generateAICourse(aiTopic.trim());
-      // Set instructor name to current user if needed, otherwise Gemini AI Assistant is default
+      generated.instructorName = currentUser?.name || 'Instructor';
       onAddCourse(generated);
       setAiTopic('');
       setActiveTab('list');
@@ -261,7 +266,7 @@ export default function InstructorDashboard({
     const newCourse: Course = {
       id: `manual_${Date.now()}`,
       title: courseTitle.trim(),
-      instructorName: 'Sarah Jenkins (Mock Instructor)',
+      instructorName: currentUser?.name || 'Instructor',
       description: courseDesc.trim() || 'No description provided.',
       weeks: Array.from({ length: 4 }).map((_, idx) => ({
         id: `week_manual_${Date.now()}_${idx}`,
@@ -342,10 +347,25 @@ export default function InstructorDashboard({
     const updatedWeeks = [...editCourseData.weeks];
     const newQuestion: QuizQuestion = {
       question: 'New question?',
+      type: 'mcq',
       options: ['Option A', 'Option B', 'Option C', 'Option D'],
       correctAnswerIndex: 0
     };
     const updatedQuiz = [...(updatedWeeks[weekIdx].quiz ?? []), newQuestion];
+    updatedWeeks[weekIdx] = { ...updatedWeeks[weekIdx], quiz: updatedQuiz };
+    setEditCourseData({ ...editCourseData, weeks: updatedWeeks });
+  };
+
+  const setQuestionType = (weekIdx: number, qIdx: number, type: 'mcq' | 'essay') => {
+    if (!editCourseData) return;
+    const updatedWeeks = [...editCourseData.weeks];
+    const updatedQuiz = [...(updatedWeeks[weekIdx].quiz ?? [])];
+    updatedQuiz[qIdx] = { 
+      ...updatedQuiz[qIdx], 
+      type,
+      options: updatedQuiz[qIdx].options || ['Option A', 'Option B', 'Option C', 'Option D'],
+      correctAnswerIndex: updatedQuiz[qIdx].correctAnswerIndex ?? 0
+    };
     updatedWeeks[weekIdx] = { ...updatedWeeks[weekIdx], quiz: updatedQuiz };
     setEditCourseData({ ...editCourseData, weeks: updatedWeeks });
   };
@@ -974,51 +994,88 @@ export default function InstructorDashboard({
                           </button>
                         </div>
 
-                        {/* Answer options */}
-                        <div className="ml-8 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {q.options.map((opt, optIdx) => (
-                            <div
-                              key={optIdx}
-                              className={`flex items-center gap-2 p-2 rounded-xl border-2 transition-all ${
-                                q.correctAnswerIndex === optIdx
-                                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
-                                  : 'border-black bg-white dark:bg-slate-900'
+                        {/* Question type switcher */}
+                        <div className="ml-8 flex items-center gap-4 text-xs font-bold">
+                          <span className="text-[10px] uppercase text-gray-400 font-black">Question Type:</span>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setQuestionType(selectedEditWeekIndex, qIdx, 'mcq')}
+                              className={`px-3 py-1 border-2 border-black rounded-lg text-[10px] font-black uppercase transition-all cursor-pointer ${
+                                (q.type || 'mcq') === 'mcq'
+                                  ? 'bg-[#FFD600] text-black shadow-[1.5px_1.5px_0px_0px_#000000]'
+                                  : 'bg-white dark:bg-slate-900 text-slate-500 hover:text-black'
                               }`}
                             >
-                              {/* Correct answer radio */}
-                              <button
-                                type="button"
-                                onClick={() => setCorrectAnswer(selectedEditWeekIndex, qIdx, optIdx)}
-                                className="flex-shrink-0"
-                                title={q.correctAnswerIndex === optIdx ? 'Correct answer' : 'Set as correct answer'}
-                              >
-                                {q.correctAnswerIndex === optIdx ? (
-                                  <CheckCircle className="w-4 h-4 text-emerald-500 stroke-[2.5]" />
-                                ) : (
-                                  <Circle className="w-4 h-4 text-slate-300 dark:text-slate-600 hover:text-emerald-400 stroke-[2]" />
-                                )}
-                              </button>
-
-                              {/* Option label */}
-                              <span className="text-[9px] font-black text-slate-400 uppercase flex-shrink-0">
-                                {String.fromCharCode(65 + optIdx)}
-                              </span>
-
-                              {/* Option text input */}
-                              <input
-                                type="text"
-                                value={opt}
-                                onChange={(e) => updateQuizOption(selectedEditWeekIndex, qIdx, optIdx, e.target.value)}
-                                className="flex-1 min-w-0 bg-transparent text-xs font-bold text-black dark:text-white focus:outline-none"
-                              />
-                            </div>
-                          ))}
+                              Multiple Choice
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setQuestionType(selectedEditWeekIndex, qIdx, 'essay')}
+                              className={`px-3 py-1 border-2 border-black rounded-lg text-[10px] font-black uppercase transition-all cursor-pointer ${
+                                q.type === 'essay'
+                                  ? 'bg-[#FFD600] text-black shadow-[1.5px_1.5px_0px_0px_#000000]'
+                                  : 'bg-white dark:bg-slate-900 text-slate-500 hover:text-black'
+                              }`}
+                            >
+                              Essay Type
+                            </button>
+                          </div>
                         </div>
 
-                        {/* Correct answer indicator */}
-                        <p className="ml-8 text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-                          ✓ Correct: Option {String.fromCharCode(65 + q.correctAnswerIndex)} — Click the circle on any option to change the correct answer
-                        </p>
+                        {/* Answer options (only for multiple choice) */}
+                        {(q.type || 'mcq') === 'mcq' ? (
+                          <>
+                            <div className="ml-8 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {q.options.map((opt, optIdx) => (
+                                <div
+                                  key={optIdx}
+                                  className={`flex items-center gap-2 p-2 rounded-xl border-2 transition-all ${
+                                    q.correctAnswerIndex === optIdx
+                                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
+                                      : 'border-black bg-white dark:bg-slate-900'
+                                  }`}
+                                >
+                                  {/* Correct answer radio */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setCorrectAnswer(selectedEditWeekIndex, qIdx, optIdx)}
+                                    className="flex-shrink-0"
+                                    title={q.correctAnswerIndex === optIdx ? 'Correct answer' : 'Set as correct answer'}
+                                  >
+                                    {q.correctAnswerIndex === optIdx ? (
+                                      <CheckCircle className="w-4 h-4 text-emerald-500 stroke-[2.5]" />
+                                    ) : (
+                                      <Circle className="w-4 h-4 text-slate-300 dark:text-slate-600 hover:text-emerald-400 stroke-[2]" />
+                                    )}
+                                  </button>
+
+                                  {/* Option label */}
+                                  <span className="text-[9px] font-black text-slate-400 uppercase flex-shrink-0">
+                                    {String.fromCharCode(65 + optIdx)}
+                                  </span>
+
+                                  {/* Option text input */}
+                                  <input
+                                    type="text"
+                                    value={opt}
+                                    onChange={(e) => updateQuizOption(selectedEditWeekIndex, qIdx, optIdx, e.target.value)}
+                                    className="flex-1 min-w-0 bg-transparent text-xs font-bold text-black dark:text-white focus:outline-none"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Correct answer indicator */}
+                            <p className="ml-8 text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                              ✓ Correct: Option {String.fromCharCode(65 + q.correctAnswerIndex)} — Click the circle on any option to change the correct answer
+                            </p>
+                          </>
+                        ) : (
+                          <div className="ml-8 p-3 bg-indigo-50/50 dark:bg-slate-950/50 border-2 border-dashed border-black rounded-xl text-[10px] font-bold text-gray-500 dark:text-slate-400">
+                            ✏️ Essay Question: Students will answer this with a freeform text response (typing or dictating via Speech-to-Text).
+                          </div>
+                        )}
 
                       </div>
                     ))
@@ -1364,6 +1421,106 @@ export default function InstructorDashboard({
                                 ) : (
                                   <p className="text-xs text-gray-400 italic">Not enrolled in any course yet.</p>
                                 )}
+
+                                {/* Student Submissions List for Quiz/Assignments */}
+                                {(() => {
+                                  const studentSubmissions = submissions.filter(s => s.studentId === student.id);
+                                  return (
+                                    <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                                      <p className="text-[9px] font-black uppercase text-gray-400 tracking-wider">Student Submission Assessments</p>
+                                      {studentSubmissions.length === 0 ? (
+                                        <p className="text-xs text-slate-500 italic">No submissions submitted yet.</p>
+                                      ) : (
+                                        <div className="space-y-2">
+                                          {studentSubmissions.map(sub => {
+                                            const assignment = assignments.find(a => a.id === sub.assignmentId);
+                                            const course = courses.find(c => c.id === sub.courseId);
+                                            const maxScore = assignment?.maxScore || 100;
+                                            const isQuiz = sub.assignmentId.startsWith('quiz_');
+                                            const draft = gradeDrafts[sub.id] || { grade: sub.grade?.toString() || '', feedback: sub.feedback || '' };
+
+                                            return (
+                                              <div key={sub.id} className="p-3 bg-white dark:bg-slate-900 border border-black rounded-xl space-y-2 shadow-[1.5px_1.5px_0px_0px_#000000]">
+                                                <div className="flex justify-between items-start">
+                                                  <div>
+                                                    <span className="text-[9px] font-black uppercase bg-purple-100 text-purple-800 border border-purple-200 px-1.5 py-0.5 rounded">
+                                                      {isQuiz ? '📝 Quiz' : '📋 Assignment'}
+                                                    </span>
+                                                    <h5 className="text-xs font-black text-black dark:text-white mt-1">
+                                                      {assignment?.title || 'Assessment'}
+                                                    </h5>
+                                                    <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">
+                                                      {course?.title || 'Course'}
+                                                    </p>
+                                                  </div>
+                                                  <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase ${
+                                                    sub.grade !== undefined
+                                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                                      : 'bg-amber-100 text-amber-800 border-amber-300'
+                                                  }`}>
+                                                    {sub.grade !== undefined ? `Score: ${sub.grade}/${maxScore}` : 'Pending Grade'}
+                                                  </span>
+                                                </div>
+
+                                                {/* Submission content details */}
+                                                <div className="p-2.5 bg-slate-50 dark:bg-slate-950/50 rounded-lg text-xs border border-slate-200 dark:border-slate-800 max-h-[150px] overflow-y-auto font-sans leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-line">
+                                                  {sub.textContent}
+                                                </div>
+
+                                                {/* Grading form */}
+                                                <div className="pt-2 border-t border-slate-105 dark:border-slate-800/80 flex flex-col gap-2">
+                                                  <div className="flex gap-2 items-center">
+                                                    <div className="w-24">
+                                                      <label className="text-[8px] font-black uppercase text-gray-405">Score ({maxScore} Max)</label>
+                                                      <input
+                                                        type="number"
+                                                        value={draft.grade}
+                                                        onChange={(e) => setGradeDrafts(prev => ({
+                                                          ...prev,
+                                                          [sub.id]: { grade: e.target.value, feedback: prev[sub.id]?.feedback || '' }
+                                                        }))}
+                                                        placeholder="Score"
+                                                        className="w-full px-2 py-1 border border-black rounded bg-white dark:bg-slate-950 text-xs font-bold focus:outline-none"
+                                                      />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                      <label className="text-[8px] font-black uppercase text-gray-405">Teacher Feedback</label>
+                                                      <input
+                                                        type="text"
+                                                        value={draft.feedback}
+                                                        onChange={(e) => setGradeDrafts(prev => ({
+                                                          ...prev,
+                                                          [sub.id]: { feedback: e.target.value, grade: prev[sub.id]?.grade || '' }
+                                                        }))}
+                                                        placeholder="Add comments..."
+                                                        className="w-full px-2 py-1 border border-black rounded bg-white dark:bg-slate-950 text-xs font-bold focus:outline-none"
+                                                      />
+                                                    </div>
+                                                  </div>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      const gradeNum = parseFloat(draft.grade);
+                                                      if (isNaN(gradeNum) || gradeNum < 0 || gradeNum > maxScore) {
+                                                        alert(`Grade must be between 0 and ${maxScore}.`);
+                                                        return;
+                                                      }
+                                                      onGradeSubmission(sub.id, gradeNum, draft.feedback);
+                                                      alert('Grade saved successfully!');
+                                                    }}
+                                                    className="self-end px-3 py-1 bg-emerald-400 hover:bg-emerald-500 border border-black text-black rounded-lg text-[9px] font-black uppercase shadow-[1px_1px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                                                  >
+                                                    Save Grade
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             )}
                           </div>

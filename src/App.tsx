@@ -577,10 +577,31 @@ export default function App() {
       submittedAt: new Date().toISOString(),
     };
     try {
+      // If this is a quiz submission, ensure the quiz assignment shell exists in DB first
+      if (submission.assignmentId.startsWith('quiz_')) {
+        const quizAssignId = submission.assignmentId;
+        const alreadyExists = assignments.some(a => a.id === quizAssignId);
+        if (!alreadyExists) {
+          const course = courses.find(c => c.id === submission.courseId);
+          const weekNum = quizAssignId.split('_').pop() || '1';
+          const newQuizAssignment: Assignment = {
+            id: quizAssignId,
+            courseId: submission.courseId,
+            title: `${course?.title || 'Course'} - Week ${weekNum} Quiz`,
+            description: `Quiz answers & essay assessment for Week ${weekNum}`,
+            dueDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
+            createdAt: new Date().toISOString(),
+            maxScore: 100
+          };
+          await db.upsertAssignment(newQuizAssignment);
+          setAssignments(prev => [newQuizAssignment, ...prev]);
+        }
+      }
+
       await db.insertSubmission(newSub);
       setSubmissions((prev) => [newSub, ...prev]);
     } catch (err: any) {
-      alert('Failed to submit assignment: ' + err.message);
+      alert('Failed to submit: ' + err.message);
     }
   };
 
@@ -859,6 +880,7 @@ export default function App() {
               submissions={submissions}
               enrollments={enrollments}
               voiceCommand={lastVoiceCommand}
+              currentUser={currentUser}
               onAddCourse={handleAddCourse}
               onDeleteCourse={handleDeleteCourse}
               onUpdateCourse={handleUpdateCourse}
