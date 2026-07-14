@@ -67,7 +67,7 @@ export async function generateAICourse(topic: string): Promise<Course> {
 
     const responseText = response.text || '';
     // Strip markdown formatting if the model still outputs it despite prompts
-    const jsonString = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const jsonString = responseText.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(jsonString);
 
     // Map output to match the Course type
@@ -283,7 +283,7 @@ export async function parseVoiceCommand(transcript: string): Promise<ParsedVoice
         if (response.ok) {
           const result = await response.json();
           const text = result.choices?.[0]?.message?.content?.trim() || '{}';
-          const cleanText = text.replace(/^```json\s*/i, '').replace(/```$/, '');
+          const cleanText = text.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '').trim();
           return JSON.parse(cleanText) as ParsedVoiceCommand;
         } else {
           const errText = await response.text();
@@ -307,7 +307,7 @@ export async function parseVoiceCommand(transcript: string): Promise<ParsedVoice
 
         const response = await Promise.race([geminiCall, timeoutPromise]) as any;
         const text = response.text?.trim() || '{}';
-        const cleanText = text.replace(/^```json\s*/i, '').replace(/```$/, '');
+        const cleanText = text.replace(/```[a-z]*\s*/gi, '').replace(/```/g, '').trim();
         return JSON.parse(cleanText) as ParsedVoiceCommand;
       }
     } catch (err: any) {
