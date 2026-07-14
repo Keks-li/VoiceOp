@@ -848,8 +848,8 @@ export default function App() {
 
           {/* User Badge */}
           {currentUser && (
-            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
-              <div className="text-right">
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
+              <div className="text-right hidden sm:block">
                 <div className="text-xs font-black text-black dark:text-white leading-none">
                   {currentUser.name}
                 </div>
