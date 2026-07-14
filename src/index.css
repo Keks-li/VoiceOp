@@ -76,6 +76,16 @@ html.dark .text-black {
   color: #F1F5F9 !important;
 }
 
+/* Ensure high contrast black text on yellow/amber backgrounds in dark mode */
+html.dark [class*="bg-[#FFD600]"],
+html.dark [class*="bg-yellow-"],
+html.dark [class*="bg-amber-400"],
+html.dark [class*="bg-[#FFD600]"] *,
+html.dark [class*="bg-yellow-"] *,
+html.dark [class*="bg-amber-400"] * {
+  color: #000000 !important;
+}
+
 /* Gray muted text */
 html.dark .text-gray-500,
 html.dark .text-gray-600,
