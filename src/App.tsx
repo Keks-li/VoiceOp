@@ -269,9 +269,10 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginRole, setLoginRole] = useState<'student' | 'instructor'>('student');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
 
   // Sign Up inputs
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot_password' | 'update_password'>('login');
   const [signupName, setSignupName] = useState('');
 
   // Listen to Supabase auth changes
@@ -332,6 +333,8 @@ export default function App() {
           setEnrollments([]);
           setIsLoading(false);
         }
+      } else if (event === 'PASSWORD_RECOVERY') {
+        setAuthMode('update_password');
       }
     });
 
@@ -465,6 +468,47 @@ export default function App() {
   const handleManualLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
+    setResetMessage(null);
+
+    if (authMode === 'forgot_password') {
+      if (!loginEmail.trim()) {
+        setLoginError('Email cannot be empty');
+        return;
+      }
+      setIsLoading(true);
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(loginEmail, {
+          redirectTo: window.location.origin,
+        });
+        if (error) throw error;
+        setResetMessage('Password reset link sent to your email.');
+      } catch (err: any) {
+        setLoginError(err.message || 'Failed to send reset link');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (authMode === 'update_password') {
+      if (!loginPassword.trim()) {
+        setLoginError('Password cannot be empty');
+        return;
+      }
+      setIsLoading(true);
+      try {
+        const { error } = await supabase.auth.updateUser({ password: loginPassword });
+        if (error) throw error;
+        setResetMessage('Password updated successfully. You can now log in.');
+        setAuthMode('login');
+        setLoginPassword('');
+      } catch (err: any) {
+        setLoginError(err.message || 'Failed to update password');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
 
     if (!loginEmail.trim() || !loginPassword.trim()) {
       setLoginError('Credentials cannot be empty');
@@ -902,7 +946,7 @@ export default function App() {
               onRequestEnrollment={handleRequestEnrollment}
             />
           )
-        ) : (
+        ) : authMode === 'login' || authMode === 'signup' ? (
           /* SIGN IN / SIGN UP SCREEN */
           <div className="max-w-md w-full mx-auto my-auto p-6 md:p-8 bg-white dark:bg-slate-900 border-4 border-black rounded-3xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col gap-5">
             
@@ -1005,6 +1049,15 @@ export default function App() {
                   required
                   minLength={6}
                 />
+                {authMode === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('forgot_password'); setLoginError(null); setResetMessage(null); }}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800 text-right mt-1"
+                  >
+                    Forgot Password?
+                  </button>
+                )}
               </div>
 
               {loginError && (
@@ -1024,9 +1077,108 @@ export default function App() {
             </form>
 
           </div>
-        )
-        
-        }
+        ) : authMode === 'forgot_password' ? (
+          <div className="bg-white dark:bg-slate-900 border-4 border-black p-6 sm:p-8 rounded-3xl shadow-[8px_8px_0px_0px_#000000] max-w-sm w-full mx-auto relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-yellow-400 dark:bg-yellow-500 rounded-bl-[100px] -z-10 group-hover:scale-110 transition-transform opacity-50"></div>
+
+            <div className="flex flex-col items-center mb-8 gap-3">
+              <div className="w-12 h-12 bg-black text-white rounded-2xl flex items-center justify-center shadow-[4px_4px_0px_0px_#FFD600] rotate-3 hover:rotate-6 transition-transform">
+                <BookOpen className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-black dark:text-white uppercase tracking-tight text-center">Reset Password</h2>
+            </div>
+
+            <form onSubmit={handleManualLoginSubmit} className="space-y-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">Email Address</label>
+                <input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-semibold text-sm text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-black"
+                  required
+                />
+              </div>
+
+              {loginError && (
+                <div className="p-3 bg-rose-100 border-2 border-rose-300 text-rose-800 rounded-xl text-xs font-bold leading-relaxed">
+                  {loginError}
+                </div>
+              )}
+
+              {resetMessage && (
+                <div className="p-3 bg-emerald-100 border-2 border-emerald-300 text-emerald-800 rounded-xl text-xs font-bold leading-relaxed">
+                  {resetMessage}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3 px-4 bg-[#FFD600] text-black border-2 border-black rounded-2xl font-black uppercase tracking-wider text-sm shadow-[3px_3px_0px_0px_#000000] hover:bg-[#FEE21E] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed mt-2"
+              >
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Reset Password
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setAuthMode('login'); setLoginError(null); setResetMessage(null); }}
+                className="w-full py-2 text-xs font-bold text-gray-500 hover:text-black dark:hover:text-white transition-colors mt-2"
+              >
+                Back to Login
+              </button>
+            </form>
+          </div>
+        ) : authMode === 'update_password' ? (
+          <div className="bg-white dark:bg-slate-900 border-4 border-black p-6 sm:p-8 rounded-3xl shadow-[8px_8px_0px_0px_#000000] max-w-sm w-full mx-auto relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-yellow-400 dark:bg-yellow-500 rounded-bl-[100px] -z-10 group-hover:scale-110 transition-transform opacity-50"></div>
+
+            <div className="flex flex-col items-center mb-8 gap-3">
+              <div className="w-12 h-12 bg-black text-white rounded-2xl flex items-center justify-center shadow-[4px_4px_0px_0px_#FFD600] rotate-3 hover:rotate-6 transition-transform">
+                <BookOpen className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-black dark:text-white uppercase tracking-tight text-center">Set New Password</h2>
+            </div>
+
+            <form onSubmit={handleManualLoginSubmit} className="space-y-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">New Password</label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  className="px-3.5 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-semibold text-sm text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-black"
+                  required
+                  minLength={6}
+                />
+              </div>
+
+              {loginError && (
+                <div className="p-3 bg-rose-100 border-2 border-rose-300 text-rose-800 rounded-xl text-xs font-bold leading-relaxed">
+                  {loginError}
+                </div>
+              )}
+
+              {resetMessage && (
+                <div className="p-3 bg-emerald-100 border-2 border-emerald-300 text-emerald-800 rounded-xl text-xs font-bold leading-relaxed">
+                  {resetMessage}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3 px-4 bg-[#FFD600] text-black border-2 border-black rounded-2xl font-black uppercase tracking-wider text-sm shadow-[3px_3px_0px_0px_#000000] hover:bg-[#FEE21E] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed mt-2"
+              >
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Update Password
+              </button>
+            </form>
+          </div>
+        ) : null}
 
       </main>
 
