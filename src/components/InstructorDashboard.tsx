@@ -2,10 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Plus, BookOpen, Sparkles, BookOpenCheck, Trash2, Edit2, Volume2, CheckCircle, Circle, PlusCircle, HelpCircle, Users, GraduationCap, XCircle, UserCheck, Search, Mic, MicOff
 } from 'lucide-react';
-import { Course, Week, QuizQuestion, Assignment, AssignmentSubmission, Enrollment, ParsedVoiceCommand, User } from '../types';
+import { Course, Week, QuizQuestion, Assignment, AssignmentSubmission, Enrollment, ParsedVoiceCommand, User, WeekFile } from '../types';
 import { generateAICourse } from '../lib/gemini';
 import { fetchAllStudents, StudentWithCourses } from '../lib/db';
 import InstructorAssignments from './InstructorAssignments';
+import { InstructorFilePanel } from './WeekFileSection';
 
 interface InstructorDashboardProps {
   courses: Course[];
@@ -489,7 +490,8 @@ export default function InstructorDashboard({
       {/* Main Workspace Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
-        {/* LIST / DETAILS SIDEBAR (4 cols) */}
+        {/* LIST / DETAILS SIDEBAR (4 cols) — hidden on assignments/students tabs */}
+        {(activeTab === 'list' || activeTab === 'create' || isEditing) && (
         <div className="lg:col-span-4 space-y-4">
           <div className="bg-white dark:bg-slate-900 border-4 border-black p-4 rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
             <h3 className="text-sm font-black uppercase text-black dark:text-white mb-3 tracking-wide">
@@ -543,9 +545,10 @@ export default function InstructorDashboard({
             )}
           </div>
         </div>
+        )}
 
-        {/* WORKSPACE CONTENT AREA (8 cols) */}
-        <div className="lg:col-span-8">
+        {/* WORKSPACE CONTENT AREA — 8 cols alongside sidebar, or full 12 cols for assignments/students */}
+        <div className={activeTab === 'assignments' || activeTab === 'students' ? 'lg:col-span-12' : 'lg:col-span-8'}>
           
           {/* TAB 1: LIST / SELECT COURSE VIEW */}
           {activeTab === 'list' && !isEditing && (
@@ -1083,458 +1086,377 @@ export default function InstructorDashboard({
                 </div>
               </div>
 
+              {/* ── Week Files Section ── */}
+              <div className="border-4 border-black rounded-2xl overflow-hidden shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                <div className="bg-amber-500 text-black px-5 py-3">
+                  <span className="text-xs font-black uppercase tracking-wider">📎 Week Files & Resources</span>
+                </div>
+                <div className="p-4 bg-white dark:bg-slate-900">
+                  <InstructorFilePanel
+                    files={editCourseData.weeks[selectedEditWeekIndex].files || []}
+                    onFilesChange={(newFiles: WeekFile[]) => {
+                      const updatedWeeks = [...editCourseData.weeks];
+                      updatedWeeks[selectedEditWeekIndex] = {
+                        ...updatedWeeks[selectedEditWeekIndex],
+                        files: newFiles,
+                      };
+                      setEditCourseData({ ...editCourseData, weeks: updatedWeeks });
+                    }}
+                  />
+                </div>
+              </div>
+
             </div>
           )}
 
-        </div>
-
-      </div>
-
-      {/* ASSIGNMENTS TAB */}
-      {activeTab === 'assignments' && !isEditing && courses.length > 0 && (
-        <InstructorAssignments
-          courses={courses}
-          assignments={assignments}
-          submissions={submissions}
-          onAddAssignment={onAddAssignment}
-          onDeleteAssignment={onDeleteAssignment}
-          onGradeSubmission={onGradeSubmission}
-        />
-      )}
-      {activeTab === 'assignments' && !isEditing && courses.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-900 border-4 border-black rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
-          <p className="text-sm font-black uppercase text-slate-400">Create a course first before adding assignments.</p>
-        </div>
-      )}
-
-      {/* STUDENTS TAB */}
-      {activeTab === 'students' && !isEditing && (() => {
-        const pendingEnrollments = enrollments.filter(e => e.status === 'pending');
-        const allPendingSelected = pendingEnrollments.length > 0 &&
-          pendingEnrollments.every(e => selectedEnrollmentIds.has(e.id));
-
-        const toggleSelect = (id: string) => {
-          setSelectedEnrollmentIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id); else next.add(id);
-            return next;
-          });
-        };
-
-        const toggleAll = () => {
-          if (allPendingSelected) {
-            setSelectedEnrollmentIds(new Set());
-          } else {
-            setSelectedEnrollmentIds(new Set(pendingEnrollments.map(e => e.id)));
-          }
-        };
-
-        const handleBulkAction = async (status: 'approved' | 'rejected') => {
-          const ids = Array.from(selectedEnrollmentIds) as string[];
-          if (ids.length === 0) return;
-          await onUpdateEnrollments(ids, status);
-          setSelectedEnrollmentIds(new Set());
-        };
-
-        return (
-          <div className="bg-white dark:bg-slate-900 border-4 border-black p-6 rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] space-y-5">
-            {/* Header */}
-            <div className="flex items-center gap-3 border-b-2 border-black pb-4">
-              <div className="p-2.5 bg-emerald-100 dark:bg-emerald-950 border-2 border-black rounded-xl">
-                <GraduationCap className="w-5 h-5 text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
-              </div>
-              <div>
-                <h3 className="text-lg font-black uppercase text-black dark:text-white tracking-tight">Students & Enrollments</h3>
-                <p className="text-xs font-bold text-gray-500 dark:text-slate-400">Review enrollment requests and manage your student roster.</p>
-              </div>
-              {pendingEnrollments.length > 0 && (
-                <span className="ml-auto bg-amber-400 text-black text-[10px] font-black px-2.5 py-1 rounded-full border-2 border-black">
-                  {pendingEnrollments.length} Pending
-                </span>
-              )}
+          {/* ASSIGNMENTS TAB — inside right panel, beside the menu on desktop */}
+          {activeTab === 'assignments' && !isEditing && courses.length > 0 && (
+            <InstructorAssignments
+              courses={courses}
+              assignments={assignments}
+              submissions={submissions}
+              onAddAssignment={onAddAssignment}
+              onDeleteAssignment={onDeleteAssignment}
+              onGradeSubmission={onGradeSubmission}
+            />
+          )}
+          {activeTab === 'assignments' && !isEditing && courses.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-900 border-4 border-black rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+              <p className="text-sm font-black uppercase text-slate-400">Create a course first before adding assignments.</p>
             </div>
+          )}
 
-            {/* Sub-tabs */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setEnrollmentsTab('requests')}
-                className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000] flex items-center gap-1.5 ${
-                  enrollmentsTab === 'requests' ? 'bg-[#FFD600] text-black' : 'bg-slate-100 dark:bg-slate-800 text-black dark:text-white'
-                }`}
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                Enrollment Requests
-                {pendingEnrollments.length > 0 && (
-                  <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">{pendingEnrollments.length}</span>
-                )}
-              </button>
-              <button
-                onClick={() => { setEnrollmentsTab('roster'); setStudentsLoading(true); setStudentsError(null); fetchAllStudents().then(setStudents).catch(err => setStudentsError(err.message)).finally(() => setStudentsLoading(false)); }}
-                className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000] flex items-center gap-1.5 ${
-                  enrollmentsTab === 'roster' ? 'bg-[#FFD600] text-black' : 'bg-slate-100 dark:bg-slate-800 text-black dark:text-white'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                Student Roster
-              </button>
-            </div>
+          {/* STUDENTS TAB — inside right panel, beside the menu on desktop */}
+          {activeTab === 'students' && !isEditing && (() => {
+            const pendingEnrollments = enrollments.filter(e => e.status === 'pending');
+            const allPendingSelected = pendingEnrollments.length > 0 &&
+              pendingEnrollments.every(e => selectedEnrollmentIds.has(e.id));
 
-            {/* ── ENROLLMENT REQUESTS PANEL ── */}
-            {enrollmentsTab === 'requests' && (
-              <div className="space-y-4">
-                {/* Bulk action toolbar */}
-                {pendingEnrollments.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-300 rounded-2xl">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={allPendingSelected}
-                        onChange={toggleAll}
-                        className="w-4 h-4 rounded border-2 border-black accent-black"
-                      />
-                      <span className="text-xs font-black uppercase text-black dark:text-white">Select All ({pendingEnrollments.length})</span>
-                    </label>
+            const toggleSelect = (id: string) => {
+              setSelectedEnrollmentIds(prev => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id); else next.add(id);
+                return next;
+              });
+            };
 
-                    <div className="ml-auto flex gap-2">
-                      <button
-                        disabled={selectedEnrollmentIds.size === 0}
-                        onClick={() => handleBulkAction('approved')}
-                        className={`px-3.5 py-1.5 border-2 border-black rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all ${
-                          selectedEnrollmentIds.size === 0
-                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                            : 'bg-emerald-400 hover:bg-emerald-500 text-black'
-                        }`}
-                      >
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        Approve {selectedEnrollmentIds.size > 0 ? `(${selectedEnrollmentIds.size})` : ''}
-                      </button>
-                      <button
-                        disabled={selectedEnrollmentIds.size === 0}
-                        onClick={() => handleBulkAction('rejected')}
-                        className={`px-3.5 py-1.5 border-2 border-black rounded-xl text-xs font-black uppercase flex items-center gap-1.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all ${
-                          selectedEnrollmentIds.size === 0
-                            ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                            : 'bg-rose-400 hover:bg-rose-500 text-black'
-                        }`}
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                        Reject {selectedEnrollmentIds.size > 0 ? `(${selectedEnrollmentIds.size})` : ''}
-                      </button>
-                    </div>
+            const toggleAll = () => {
+              if (allPendingSelected) {
+                setSelectedEnrollmentIds(new Set());
+              } else {
+                setSelectedEnrollmentIds(new Set(pendingEnrollments.map(e => e.id)));
+              }
+            };
+
+            const handleBulkAction = async (status: 'approved' | 'rejected') => {
+              const ids = Array.from(selectedEnrollmentIds) as string[];
+              if (ids.length === 0) return;
+              await onUpdateEnrollments(ids, status);
+              setSelectedEnrollmentIds(new Set());
+            };
+
+            return (
+              <div className="bg-white dark:bg-slate-900 border-4 border-black p-6 rounded-3xl shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] space-y-5">
+                {/* Header */}
+                <div className="flex items-center gap-3 border-b-2 border-black pb-4">
+                  <div className="p-2.5 bg-emerald-100 dark:bg-emerald-950 border-2 border-black rounded-xl">
+                    <GraduationCap className="w-5 h-5 text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
                   </div>
-                )}
-
-                {/* Request cards */}
-                {enrollments.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-                    <UserCheck className="w-12 h-12 text-slate-300 dark:text-slate-700 stroke-[1.5]" />
-                    <p className="text-sm font-black uppercase text-slate-400">No Enrollment Requests Yet</p>
-                    <p className="text-xs text-gray-500 max-w-xs">Students will appear here once they request enrollment from the Course Catalog.</p>
+                  <div>
+                    <h3 className="text-lg font-black uppercase text-black dark:text-white tracking-tight">Students &amp; Enrollments</h3>
+                    <p className="text-xs font-bold text-gray-500 dark:text-slate-400">Review enrollment requests and manage your student roster.</p>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    {/* Group by status */}
-                    {(['pending', 'approved', 'rejected'] as const).map(status => {
-                      const group = enrollments.filter(e => e.status === status);
-                      if (group.length === 0) return null;
-                      return (
-                        <div key={status} className="space-y-2">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mt-2">
-                            {status === 'pending' ? '⏳ Pending Approval' : status === 'approved' ? '✅ Approved' : '❌ Rejected'}
-                          </p>
-                          {group.map(enrollment => {
-                            const course = courses.find(c => c.id === enrollment.courseId);
-                            const isSelected = selectedEnrollmentIds.has(enrollment.id);
-                            return (
-                              <div
-                                key={enrollment.id}
-                                className={`flex items-center gap-3 p-3.5 border-2 rounded-2xl transition-all ${
-                                  status === 'pending'
-                                    ? isSelected
-                                      ? 'border-black bg-amber-50 dark:bg-amber-950/30 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-                                      : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 hover:border-black'
-                                    : status === 'approved'
-                                      ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-950/20'
-                                      : 'border-rose-200 bg-rose-50 dark:bg-rose-950/20'
-                                }`}
-                              >
-                                {/* Checkbox for pending only */}
-                                {status === 'pending' && (
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => toggleSelect(enrollment.id)}
-                                    className="w-4 h-4 rounded border-2 border-black accent-black flex-shrink-0"
-                                  />
-                                )}
+                  {pendingEnrollments.length > 0 && (
+                    <span className="ml-auto bg-amber-400 text-black text-[10px] font-black px-2.5 py-1 rounded-full border-2 border-black">
+                      {pendingEnrollments.length} Pending
+                    </span>
+                  )}
+                </div>
 
-                                {/* Avatar */}
-                                <div
-                                  className="w-9 h-9 rounded-full border-2 border-black flex items-center justify-center font-black text-sm uppercase flex-shrink-0 text-white"
-                                  style={{ backgroundColor: 'var(--accent)' }}
+                {/* Sub-tabs */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEnrollmentsTab('requests')}
+                    className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000] flex items-center gap-1.5 ${
+                      enrollmentsTab === 'requests' ? 'bg-[#FFD600] text-black' : 'bg-slate-100 dark:bg-slate-800 text-black dark:text-white'
+                    }`}
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    Enrollment Requests
+                    {pendingEnrollments.length > 0 && (
+                      <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">{pendingEnrollments.length}</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => { setEnrollmentsTab('roster'); setStudentsLoading(true); setStudentsError(null); fetchAllStudents().then(setStudents).catch(err => setStudentsError(err.message)).finally(() => setStudentsLoading(false)); }}
+                    className={`px-4 py-2 border-2 border-black rounded-xl font-black text-xs uppercase transition-all shadow-[2px_2px_0px_0px_#000] flex items-center gap-1.5 ${
+                      enrollmentsTab === 'roster' ? 'bg-[#FFD600] text-black' : 'bg-slate-100 dark:bg-slate-800 text-black dark:text-white'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    Student Roster
+                  </button>
+                </div>
+
+                {/* ── ENROLLMENT REQUESTS PANEL ── */}
+                {enrollmentsTab === 'requests' && (
+                  <div className="space-y-4">
+                    {/* Bulk action toolbar */}
+                    {pendingEnrollments.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-300 rounded-2xl">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={allPendingSelected}
+                            onChange={toggleAll}
+                            className="w-4 h-4 rounded border-2 border-black accent-black"
+                          />
+                          <span className="text-xs font-black uppercase text-black dark:text-white">Select All ({pendingEnrollments.length})</span>
+                        </label>
+
+                        <div className="ml-auto flex gap-2">
+                          <button
+                            disabled={selectedEnrollmentIds.size === 0}
+                            onClick={() => handleBulkAction('approved')}
+                            className="px-3 py-1.5 bg-emerald-400 hover:bg-emerald-500 border-2 border-black rounded-xl text-xs font-black uppercase disabled:opacity-40 disabled:cursor-not-allowed shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                          >
+                            ✓ Approve Selected
+                          </button>
+                          <button
+                            disabled={selectedEnrollmentIds.size === 0}
+                            onClick={() => handleBulkAction('rejected')}
+                            className="px-3 py-1.5 bg-rose-400 hover:bg-rose-500 border-2 border-black rounded-xl text-xs font-black uppercase disabled:opacity-40 disabled:cursor-not-allowed shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                          >
+                            ✕ Reject Selected
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {pendingEnrollments.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16">
+                        <UserCheck className="w-10 h-10 text-slate-300 dark:text-slate-700 stroke-[1.5] mb-2" />
+                        <p className="text-sm font-black uppercase text-slate-400">No pending enrollment requests.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {pendingEnrollments.map((enrollment) => {
+                          const course = courses.find(c => c.id === enrollment.courseId);
+                          return (
+                            <div key={enrollment.id} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-950 border-2 border-black rounded-2xl">
+                              <input
+                                type="checkbox"
+                                checked={selectedEnrollmentIds.has(enrollment.id)}
+                                onChange={() => toggleSelect(enrollment.id)}
+                                className="w-4 h-4 rounded border-2 border-black accent-black flex-shrink-0"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-black text-black dark:text-white truncate">{enrollment.studentName}</p>
+                                <p className="text-[10px] text-gray-500 dark:text-slate-400 truncate">
+                                  Requesting: {course?.title || enrollment.courseId}
+                                </p>
+                              </div>
+                              <div className="flex gap-1.5 flex-shrink-0">
+                                <button
+                                  onClick={() => onUpdateEnrollments([enrollment.id], 'approved')}
+                                  className="px-2.5 py-1 bg-emerald-400 hover:bg-emerald-500 border border-black rounded-lg text-[10px] font-black uppercase"
                                 >
-                                  {enrollment.studentName.charAt(0)}
-                                </div>
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => onUpdateEnrollments([enrollment.id], 'rejected')}
+                                  className="px-2.5 py-1 bg-rose-400 hover:bg-rose-500 border border-black rounded-lg text-[10px] font-black uppercase"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
 
-                                {/* Info */}
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-black text-black dark:text-white">{enrollment.studentName}</p>
-                                  <p className="text-[10px] text-gray-500 truncate font-bold">
-                                    → {course?.title ?? enrollment.courseId}
-                                  </p>
-                                  <p className="text-[9px] text-gray-400 font-mono mt-0.5">
-                                    {new Date(enrollment.createdAt).toLocaleDateString()}
-                                  </p>
-                                </div>
+                    {/* Show already-processed enrollments */}
+                    {enrollments.filter(e => e.status !== 'pending').length > 0 && (
+                      <div className="space-y-2 pt-2 border-t-2 border-dashed border-slate-200 dark:border-slate-800">
+                        <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Previously Processed</p>
+                        {enrollments.filter(e => e.status !== 'pending').map(enrollment => {
+                          const course = courses.find(c => c.id === enrollment.courseId);
+                          return (
+                            <div key={enrollment.id} className="flex items-center gap-3 p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl opacity-75">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-black text-black dark:text-white truncate">{enrollment.studentName}</p>
+                                <p className="text-[10px] text-gray-500 dark:text-slate-400 truncate">{course?.title || enrollment.courseId}</p>
+                              </div>
+                              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                                enrollment.status === 'approved'
+                                  ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                                  : 'bg-rose-100 text-rose-700 border-rose-300'
+                              }`}>
+                                {enrollment.status}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                                {/* Per-row quick actions for pending */}
-                                {status === 'pending' && (
-                                  <div className="flex gap-1.5 flex-shrink-0">
-                                    <button
-                                      onClick={() => onUpdateEnrollments([enrollment.id], 'approved')}
-                                      className="p-1.5 bg-emerald-100 hover:bg-emerald-200 border border-emerald-400 text-emerald-700 rounded-lg transition-all"
-                                      title="Approve"
-                                    >
-                                      <CheckCircle className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                      onClick={() => onUpdateEnrollments([enrollment.id], 'rejected')}
-                                      className="p-1.5 bg-rose-100 hover:bg-rose-200 border border-rose-400 text-rose-700 rounded-lg transition-all"
-                                      title="Reject"
-                                    >
-                                      <XCircle className="w-4 h-4" />
-                                    </button>
+                {/* ── STUDENT ROSTER PANEL ── */}
+                {enrollmentsTab === 'roster' && (
+                  <div className="space-y-4">
+                    {/* Search bar */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search students by name or email..."
+                        value={rosterSearch}
+                        onChange={e => setRosterSearch(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2.5 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
+                      />
+                    </div>
+
+                    {studentsLoading ? (
+                      <div className="flex items-center justify-center py-16">
+                        <span className="animate-spin rounded-full h-8 w-8 border-b-2 border-black dark:border-white" />
+                      </div>
+                    ) : studentsError ? (
+                      <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl text-xs font-bold text-rose-700">{studentsError}</div>
+                    ) : students.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-16">
+                        <Users className="w-10 h-10 text-slate-300 dark:text-slate-700 stroke-[1.5] mb-2" />
+                        <p className="text-sm font-black uppercase text-slate-400">No enrolled students yet.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {students
+                          .filter(s =>
+                            !rosterSearch ||
+                            s.name.toLowerCase().includes(rosterSearch.toLowerCase()) ||
+                            s.email.toLowerCase().includes(rosterSearch.toLowerCase())
+                          )
+                          .map(student => {
+                            const isExpanded = expandedStudentId === student.id;
+                            const studentEnrollments = enrollments.filter(e => e.studentId === student.id && e.status === 'approved');
+                            const studentSubmissions = submissions.filter(s => s.studentId === student.id);
+
+                            return (
+                              <div key={student.id} className="border-2 border-black rounded-2xl overflow-hidden">
+                                {/* Student row */}
+                                <button
+                                  onClick={() => setExpandedStudentId(isExpanded ? null : student.id)}
+                                  className="w-full flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors text-left"
+                                >
+                                  <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950 border-2 border-black flex items-center justify-center flex-shrink-0">
+                                    <GraduationCap className="w-4 h-4 text-emerald-600 dark:text-emerald-400 stroke-[2.5]" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-black text-black dark:text-white truncate">{student.name}</p>
+                                    <p className="text-[10px] text-gray-500 dark:text-slate-400 truncate">{student.email}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-[9px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-300">
+                                      {studentEnrollments.length} Course{studentEnrollments.length !== 1 ? 's' : ''}
+                                    </span>
+                                    <span className={`text-[10px] text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
+                                  </div>
+                                </button>
+
+                                {/* Expanded: courses + submissions */}
+                                {isExpanded && (
+                                  <div className="p-4 border-t-2 border-dashed border-black bg-white dark:bg-slate-900 space-y-3">
+                                    {studentEnrollments.length === 0 ? (
+                                      <p className="text-[10px] font-bold text-slate-400 text-center py-2">No approved course enrollments.</p>
+                                    ) : (
+                                      studentEnrollments.map(enrollment => {
+                                        const course = courses.find(c => c.id === enrollment.courseId);
+                                        const courseSubmissions = studentSubmissions.filter(s => s.courseId === enrollment.courseId);
+                                        return (
+                                          <div key={enrollment.id} className="space-y-2">
+                                            <p className="text-[10px] font-black uppercase text-purple-600 dark:text-purple-400 tracking-wider">
+                                              📚 {course?.title || enrollment.courseId}
+                                            </p>
+                                            {courseSubmissions.length === 0 ? (
+                                              <p className="text-[10px] text-slate-400 pl-3">No submissions yet.</p>
+                                            ) : (
+                                              courseSubmissions.map(sub => {
+                                                const assignment = assignments.find(a => a.id === sub.assignmentId);
+                                                const maxScore = assignment?.maxScore || 100;
+                                                const draftKey = sub.id;
+                                                const draft = gradeDrafts[draftKey] || { grade: sub.grade !== undefined && sub.grade !== null ? String(sub.grade) : '', feedback: sub.feedback || '' };
+
+                                                return (
+                                                  <div key={sub.id} className="pl-3 border-l-2 border-slate-200 dark:border-slate-700 space-y-1.5">
+                                                    <div className="flex items-center justify-between">
+                                                      <p className="text-[10px] font-bold text-black dark:text-white">{assignment?.title || sub.assignmentId}</p>
+                                                      {sub.grade !== undefined && sub.grade !== null ? (
+                                                        <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.5 rounded-full border border-emerald-300">
+                                                          {sub.grade}/{maxScore}
+                                                        </span>
+                                                      ) : (
+                                                        <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full border border-amber-300">Ungraded</span>
+                                                      )}
+                                                    </div>
+                                                    <div className="flex gap-2 items-end">
+                                                      <input
+                                                        type="number"
+                                                        min={0}
+                                                        max={maxScore}
+                                                        placeholder={`Grade /\u200b${maxScore}`}
+                                                        value={draft.grade}
+                                                        onChange={e => setGradeDrafts(prev => ({ ...prev, [draftKey]: { ...draft, grade: e.target.value } }))}
+                                                        className="w-20 px-2 py-1 border-2 border-black rounded-lg bg-slate-50 dark:bg-slate-950 font-bold text-[10px] text-black dark:text-white focus:outline-none"
+                                                      />
+                                                      <input
+                                                        type="text"
+                                                        placeholder="Feedback (optional)"
+                                                        value={draft.feedback}
+                                                        onChange={e => setGradeDrafts(prev => ({ ...prev, [draftKey]: { ...draft, feedback: e.target.value } }))}
+                                                        className="flex-1 px-2 py-1 border-2 border-black rounded-lg bg-slate-50 dark:bg-slate-950 font-bold text-[10px] text-black dark:text-white focus:outline-none"
+                                                      />
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                          const gradeNum = parseFloat(draft.grade);
+                                                          if (isNaN(gradeNum) || gradeNum < 0 || gradeNum > maxScore) {
+                                                            alert(`Grade must be between 0 and ${maxScore}.`);
+                                                            return;
+                                                          }
+                                                          onGradeSubmission(sub.id, gradeNum, draft.feedback);
+                                                          alert('Grade saved successfully!');
+                                                        }}
+                                                        className="self-end px-3 py-1 bg-emerald-400 hover:bg-emerald-500 border border-black text-black rounded-lg text-[9px] font-black uppercase shadow-[1px_1px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
+                                                      >
+                                                        Save Grade
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })
+                                            )}
+                                          </div>
+                                        );
+                                      })
+                                    )}
                                   </div>
                                 )}
                               </div>
                             );
                           })}
-                        </div>
-                      );
-                    })}
+                      </div>
+                    )}
                   </div>
                 )}
+
               </div>
-            )}
+            );
+          })()}
 
-            {/* ── STUDENT ROSTER PANEL ── */}
-            {enrollmentsTab === 'roster' && (() => {
-              const filteredStudents = students.filter(student =>
-                student.name.toLowerCase().includes(rosterSearch.toLowerCase())
-              );
+        </div>
 
-              return (
-                <div className="space-y-4">
-                  {/* Search Bar */}
-                  <div className="relative w-full">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 stroke-[2.5]" />
-                    <input
-                      type="text"
-                      placeholder="Search students by name..."
-                      value={rosterSearch}
-                      onChange={(e) => setRosterSearch(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 border-2 border-black rounded-xl bg-slate-50 dark:bg-slate-950 font-bold text-xs text-black dark:text-white focus:outline-none"
-                    />
-                  </div>
-
-                  {studentsLoading && (
-                    <div className="flex items-center justify-center py-16">
-                      <span className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></span>
-                    </div>
-                  )}
-                  {studentsError && (
-                    <div className="p-3 bg-rose-100 border-2 border-rose-300 text-rose-800 rounded-xl text-xs font-bold">{studentsError}</div>
-                  )}
-                  {!studentsLoading && !studentsError && filteredStudents.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-                      <Users className="w-12 h-12 text-slate-300 dark:text-slate-700 stroke-[1.5]" />
-                      <p className="text-sm font-black uppercase text-slate-400">No matching students found.</p>
-                    </div>
-                  )}
-
-                  {!studentsLoading && filteredStudents.length > 0 && (
-                    <div className="flex flex-col gap-3">
-                      {filteredStudents.map((student) => {
-                        const approvedEnrollments = enrollments.filter(
-                          e => e.studentId === student.id && e.status === 'approved'
-                        );
-                        const approvedCourses = courses.filter(c =>
-                          approvedEnrollments.some(e => e.courseId === c.id)
-                        );
-                        const isExpanded = expandedStudentId === student.id;
-
-                        return (
-                          <div 
-                            key={student.id}
-                            className="border-2 border-black rounded-2xl bg-white dark:bg-slate-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden transition-all"
-                          >
-                            {/* List Row (default view) */}
-                            <div 
-                              onClick={() => setExpandedStudentId(isExpanded ? null : student.id)}
-                              className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-850"
-                            >
-                              <div className="flex items-center gap-3">
-                                <div 
-                                  className="w-8 h-8 rounded-full border-2 border-black flex items-center justify-center font-black text-xs uppercase flex-shrink-0 text-white"
-                                  style={{ backgroundColor: 'var(--accent)' }}
-                                >
-                                  {student.name.charAt(0)}
-                                </div>
-                                <div>
-                                  <p className="text-xs font-black text-black dark:text-white">{student.name}</p>
-                                  <p className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">
-                                    {approvedCourses.length} Enrolled • {student.submissionCount} Submissions
-                                  </p>
-                                </div>
-                              </div>
-                              <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 dark:text-purple-400">
-                                {isExpanded ? 'Collapse ▲' : 'View Card ▼'}
-                              </span>
-                            </div>
-
-                            {/* Card Details (revealed when clicked) */}
-                            {isExpanded && (
-                              <div className="p-4 bg-slate-50 dark:bg-slate-950 border-t-2 border-black space-y-4 animate-fadeIn">
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="p-2.5 bg-white dark:bg-slate-900 border border-black rounded-xl text-center">
-                                    <p className="text-lg font-black text-black dark:text-white leading-none">{approvedCourses.length}</p>
-                                    <p className="text-[9px] font-black uppercase text-gray-400 mt-1">Enrolled Courses</p>
-                                  </div>
-                                  <div className="p-2.5 bg-white dark:bg-slate-900 border border-black rounded-xl text-center">
-                                    <p className="text-lg font-black text-black dark:text-white leading-none">{student.submissionCount}</p>
-                                    <p className="text-[9px] font-black uppercase text-gray-400 mt-1">Total Submissions</p>
-                                  </div>
-                                </div>
-
-                                {approvedCourses.length > 0 ? (
-                                  <div className="space-y-1.5">
-                                    <p className="text-[9px] font-black uppercase text-gray-400 tracking-wider">Active Enrollment Details</p>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                      {approvedCourses.map(c => (
-                                        <div key={c.id} className="flex items-center gap-1.5 p-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl">
-                                          <BookOpen className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                                          <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 truncate">{c.title}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-gray-400 italic">Not enrolled in any course yet.</p>
-                                )}
-
-                                {/* Student Submissions List for Quiz/Assignments */}
-                                {(() => {
-                                  const studentSubmissions = submissions.filter(s => s.studentId === student.id);
-                                  return (
-                                    <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                                      <p className="text-[9px] font-black uppercase text-gray-400 tracking-wider">Student Submission Assessments</p>
-                                      {studentSubmissions.length === 0 ? (
-                                        <p className="text-xs text-slate-500 italic">No submissions submitted yet.</p>
-                                      ) : (
-                                        <div className="space-y-2">
-                                          {studentSubmissions.map(sub => {
-                                            const assignment = assignments.find(a => a.id === sub.assignmentId);
-                                            const course = courses.find(c => c.id === sub.courseId);
-                                            const maxScore = assignment?.maxScore || 100;
-                                            const isQuiz = sub.assignmentId.startsWith('quiz_');
-                                            const draft = gradeDrafts[sub.id] || { grade: sub.grade?.toString() || '', feedback: sub.feedback || '' };
-
-                                            return (
-                                              <div key={sub.id} className="p-3 bg-white dark:bg-slate-900 border border-black rounded-xl space-y-2 shadow-[1.5px_1.5px_0px_0px_#000000]">
-                                                <div className="flex justify-between items-start">
-                                                  <div>
-                                                    <span className="text-[9px] font-black uppercase bg-purple-100 text-purple-800 border border-purple-200 px-1.5 py-0.5 rounded">
-                                                      {isQuiz ? '📝 Quiz' : '📋 Assignment'}
-                                                    </span>
-                                                    <h5 className="text-xs font-black text-black dark:text-white mt-1">
-                                                      {assignment?.title || 'Assessment'}
-                                                    </h5>
-                                                    <p className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">
-                                                      {course?.title || 'Course'}
-                                                    </p>
-                                                  </div>
-                                                  <span className={`text-[9px] font-black px-2 py-0.5 rounded border uppercase ${
-                                                    sub.grade !== undefined
-                                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                                      : 'bg-amber-100 text-amber-800 border-amber-300'
-                                                  }`}>
-                                                    {sub.grade !== undefined ? `Score: ${sub.grade}/${maxScore}` : 'Pending Grade'}
-                                                  </span>
-                                                </div>
-
-                                                {/* Submission content details */}
-                                                <div className="p-2.5 bg-slate-50 dark:bg-slate-950/50 rounded-lg text-xs border border-slate-200 dark:border-slate-800 max-h-[150px] overflow-y-auto font-sans leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-line">
-                                                  {sub.textContent}
-                                                </div>
-
-                                                {/* Grading form */}
-                                                <div className="pt-2 border-t border-slate-105 dark:border-slate-800/80 flex flex-col gap-2">
-                                                  <div className="flex gap-2 items-center">
-                                                    <div className="w-24">
-                                                      <label className="text-[8px] font-black uppercase text-gray-405">Score ({maxScore} Max)</label>
-                                                      <input
-                                                        type="number"
-                                                        value={draft.grade}
-                                                        onChange={(e) => setGradeDrafts(prev => ({
-                                                          ...prev,
-                                                          [sub.id]: { grade: e.target.value, feedback: prev[sub.id]?.feedback || '' }
-                                                        }))}
-                                                        placeholder="Score"
-                                                        className="w-full px-2 py-1 border border-black rounded bg-white dark:bg-slate-950 text-xs font-bold focus:outline-none"
-                                                      />
-                                                    </div>
-                                                    <div className="flex-1">
-                                                      <label className="text-[8px] font-black uppercase text-gray-405">Teacher Feedback</label>
-                                                      <input
-                                                        type="text"
-                                                        value={draft.feedback}
-                                                        onChange={(e) => setGradeDrafts(prev => ({
-                                                          ...prev,
-                                                          [sub.id]: { feedback: e.target.value, grade: prev[sub.id]?.grade || '' }
-                                                        }))}
-                                                        placeholder="Add comments..."
-                                                        className="w-full px-2 py-1 border border-black rounded bg-white dark:bg-slate-950 text-xs font-bold focus:outline-none"
-                                                      />
-                                                    </div>
-                                                  </div>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                      const gradeNum = parseFloat(draft.grade);
-                                                      if (isNaN(gradeNum) || gradeNum < 0 || gradeNum > maxScore) {
-                                                        alert(`Grade must be between 0 and ${maxScore}.`);
-                                                        return;
-                                                      }
-                                                      onGradeSubmission(sub.id, gradeNum, draft.feedback);
-                                                      alert('Grade saved successfully!');
-                                                    }}
-                                                    className="self-end px-3 py-1 bg-emerald-400 hover:bg-emerald-500 border border-black text-black rounded-lg text-[9px] font-black uppercase shadow-[1px_1px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
-                                                  >
-                                                    Save Grade
-                                                  </button>
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-          </div>
-        );
-      })()}
+      </div>
 
     </div>
   );

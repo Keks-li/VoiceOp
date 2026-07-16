@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
+import {
   BookOpen, Settings, LogOut, LogIn, Sun, Moon, UserPlus, Loader2, Mic, MicOff
 } from 'lucide-react';
 import { ThemeMode, PrimaryColor, FontFamily, FontSize, User, Course, Assignment, AssignmentSubmission, Enrollment, ParsedVoiceCommand } from './types';
@@ -399,16 +399,16 @@ export default function App() {
     localStorage.setItem('voiceop_color', primaryColor);
     const palettes: Record<string, { main: string; light: string; dark: string; text: string }> = {
       purple: { main: '#9333EA', light: '#F3E8FF', dark: '#6B21A8', text: '#7E22CE' },
-      blue:   { main: '#2563EB', light: '#DBEAFE', dark: '#1D4ED8', text: '#1D4ED8' },
-      green:  { main: '#059669', light: '#D1FAE5', dark: '#047857', text: '#065F46' },
-      amber:  { main: '#D97706', light: '#FEF3C7', dark: '#B45309', text: '#92400E' },
+      blue: { main: '#2563EB', light: '#DBEAFE', dark: '#1D4ED8', text: '#1D4ED8' },
+      green: { main: '#059669', light: '#D1FAE5', dark: '#047857', text: '#065F46' },
+      amber: { main: '#D97706', light: '#FEF3C7', dark: '#B45309', text: '#92400E' },
     };
     const p = palettes[primaryColor];
     const root = document.documentElement;
-    root.style.setProperty('--accent',       p.main);
+    root.style.setProperty('--accent', p.main);
     root.style.setProperty('--accent-light', p.light);
-    root.style.setProperty('--accent-dark',  p.dark);
-    root.style.setProperty('--accent-text',  p.text);
+    root.style.setProperty('--accent-dark', p.dark);
+    root.style.setProperty('--accent-text', p.text);
     // Also set data attribute for CSS selectors
     root.setAttribute('data-accent', primaryColor);
   }, [primaryColor]);
@@ -577,7 +577,8 @@ export default function App() {
       submittedAt: new Date().toISOString(),
     };
     try {
-      // If this is a quiz submission, ensure the quiz assignment shell exists in DB first
+      // If this is a quiz submission, ensure the quiz assignment shell exists in the DB first.
+      // We will allow students to insert/update assignments starting with 'quiz_' via RLS.
       if (submission.assignmentId.startsWith('quiz_')) {
         const quizAssignId = submission.assignmentId;
         const alreadyExists = assignments.some(a => a.id === quizAssignId);
@@ -649,10 +650,10 @@ export default function App() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      
+
       const savedRate = localStorage.getItem('voiceop_tts_rate');
       const savedVoice = localStorage.getItem('voiceop_tts_voice_name');
-      
+
       if (savedRate) utterance.rate = parseFloat(savedRate);
       if (savedVoice) {
         const voices = window.speechSynthesis.getVoices();
@@ -721,7 +722,7 @@ export default function App() {
     <div className={`min-h-screen flex flex-col antialiased transition-colors duration-300 ${activeFontClass}`}
       style={{ background: themeMode === 'dark' ? '#0F172A' : '#FFFBEB', color: themeMode === 'dark' ? '#F1F5F9' : '#09090B' }}
     >
-      
+
       {/* Dynamic Header */}
       <header
         className="border-b-4 border-black py-4 px-6 md:px-12 flex items-center justify-between sticky top-0 z-30"
@@ -871,7 +872,7 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 flex flex-col justify-start">
-        
+
         {currentUser ? (
           currentUser.role === 'instructor' ? (
             <InstructorDashboard
@@ -905,7 +906,7 @@ export default function App() {
         ) : (
           /* SIGN IN / SIGN UP SCREEN */
           <div className="max-w-md w-full mx-auto my-auto p-6 md:p-8 bg-white dark:bg-slate-900 border-4 border-black rounded-3xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col gap-5">
-            
+
             <div className="text-center space-y-2">
               <span className="inline-block p-3 bg-[#FFD600] text-black border-2 border-black rounded-2xl shadow-[3px_3px_0px_0px_#000]">
                 {authMode === 'login' ? <LogIn className="w-6 h-6 stroke-[2.5]" /> : <UserPlus className="w-6 h-6 stroke-[2.5]" />}
@@ -925,22 +926,20 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => { setAuthMode('login'); setLoginError(null); }}
-                className={`py-2 text-xs font-black uppercase rounded-lg border transition-all ${
-                  authMode === 'login'
+                className={`py-2 text-xs font-black uppercase rounded-lg border transition-all ${authMode === 'login'
                     ? 'bg-black text-white border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
                     : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
-                }`}
+                  }`}
               >
                 Sign In
               </button>
               <button
                 type="button"
                 onClick={() => { setAuthMode('signup'); setLoginError(null); }}
-                className={`py-2 text-xs font-black uppercase rounded-lg border transition-all ${
-                  authMode === 'signup'
+                className={`py-2 text-xs font-black uppercase rounded-lg border transition-all ${authMode === 'signup'
                     ? 'bg-black text-white border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]'
                     : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
-                }`}
+                  }`}
               >
                 Register
               </button>
@@ -966,15 +965,13 @@ export default function App() {
                     <label className="text-[10px] font-black uppercase text-gray-400 tracking-wider">I am a</label>
                     <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-950 border-2 border-black rounded-xl">
                       <button type="button" onClick={() => setLoginRole('student')}
-                        className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${
-                          loginRole === 'student' ? 'bg-black text-white border-black' : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
-                        }`}>
+                        className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${loginRole === 'student' ? 'bg-black text-white border-black' : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
+                          }`}>
                         Student
                       </button>
                       <button type="button" onClick={() => setLoginRole('instructor')}
-                        className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${
-                          loginRole === 'instructor' ? 'bg-black text-white border-black' : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
-                        }`}>
+                        className={`py-1.5 text-[10px] font-black uppercase rounded-lg border transition-all ${loginRole === 'instructor' ? 'bg-black text-white border-black' : 'bg-transparent text-gray-500 border-transparent hover:text-black dark:hover:text-white'
+                          }`}>
                         Instructor
                       </button>
                     </div>
@@ -1025,7 +1022,7 @@ export default function App() {
 
           </div>
         )
-        
+
         }
 
       </main>

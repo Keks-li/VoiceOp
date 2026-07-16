@@ -20,6 +20,19 @@ export interface QuizQuestion {
   correctAnswerIndex: number;
 }
 
+export interface WeekFile {
+  id: string;
+  name: string;
+  /** MIME type e.g. 'application/pdf', 'text/plain', 'image/png' */
+  type: string;
+  /** Size in bytes */
+  size: number;
+  /** Base64 data URL for storage and download */
+  dataUrl: string;
+  /** Extracted plain text for TTS (populated for .txt, .pdf, .md files) */
+  textContent?: string;
+}
+
 export interface Week {
   id: string;
   weekNumber: number;
@@ -27,6 +40,8 @@ export interface Week {
   content: string;
   simplifiedContent?: string;
   quiz?: QuizQuestion[];
+  /** Instructor-uploaded files for this week */
+  files?: WeekFile[];
 }
 
 export interface Course {

@@ -5,6 +5,7 @@ import {
 import { Course, Week, ChatMessage, QuizQuestion, Assignment, AssignmentSubmission, User, Enrollment, ParsedVoiceCommand } from '../types';
 import { simplifyWeekContent, chatWithStudyBuddy } from '../lib/gemini';
 import StudentAssignments from './StudentAssignments';
+import { StudentFilePanel } from './WeekFileSection';
 
 interface StudentDashboardProps {
   courses: Course[];
@@ -136,10 +137,31 @@ export default function StudentDashboard({
     setSimplifyError(null);
     setChatHistory([]);
     setQuizAnswers([]);
-    setQuizSubmitted(false);
-    setQuizScore(null);
+    
+    // Check if student already submitted this quiz to enforce single-attempt limit
+    const quizId = selectedCourse && selectedWeek ? `quiz_${selectedCourse.id}_${selectedWeek.weekNumber}` : '';
+    const existingSub = submissions.find(s => s.assignmentId === quizId && s.studentId === currentUser.id);
+    
+    if (existingSub) {
+      setQuizSubmitted(true);
+      if (existingSub.grade !== undefined && existingSub.grade !== null) {
+        setQuizScore(existingSub.grade);
+      } else {
+        // Parse from submission text format: "Score: X/Y MCQ Correct"
+        const match = existingSub.textContent.match(/Score:\s*(\d+)/);
+        if (match) {
+          setQuizScore(parseInt(match[1]));
+        } else {
+          setQuizScore(null);
+        }
+      }
+    } else {
+      setQuizSubmitted(false);
+      setQuizScore(null);
+    }
+    
     stopTts();
-  }, [selectedCourse, selectedWeekIndex]);
+  }, [selectedCourse, selectedWeekIndex, submissions, currentUser.id]);
 
   // TTS Read-Aloud logic (incorporates delay to bypass Chromium cancel-speak bugs)
   const speak = (textToSpeak: string, section: string, messageId: string | null = null) => {
@@ -586,6 +608,18 @@ export default function StudentDashboard({
                 </p>
               </div>
 
+              {/* Week Files — students can read documents aloud or download */}
+              {selectedWeek.files && selectedWeek.files.length > 0 && (
+                <div className="border-4 border-black rounded-2xl overflow-hidden shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                  <div className="bg-amber-400 text-black px-4 py-2.5">
+                    <span className="text-[11px] font-black uppercase tracking-wider">📎 Week Resources & Files</span>
+                  </div>
+                  <div className="p-4 bg-white dark:bg-slate-900">
+                    <StudentFilePanel files={selectedWeek.files} />
+                  </div>
+                </div>
+              )}
+
               {/* Course Simplification Display */}
               {(simplifiedText || isSimplifying || simplifyError) && (
                 <div className="border-4 border-black p-5 rounded-3xl bg-[#FEF3C7] dark:bg-amber-950/20 text-black dark:text-white shadow-[4px_4px_0px_0px_#000000] space-y-3">
@@ -759,16 +793,9 @@ export default function StudentDashboard({
                         <span className="text-sm font-black px-3.5 py-1.5 border-2 border-black bg-[#FFD600] rounded-full text-black">
                           {quizScore} / {selectedWeek.quiz.filter(q => (q.type || 'mcq') === 'mcq').length} Correct
                         </span>
-                        <button
-                          onClick={() => {
-                            setQuizAnswers({});
-                            setQuizSubmitted(false);
-                            setQuizScore(null);
-                          }}
-                          className="p-2 border border-black hover:bg-slate-100 dark:hover:bg-slate-850 rounded-xl"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        </button>
+                        <span className="text-[10px] font-black uppercase text-rose-500 bg-rose-50 dark:bg-rose-950/20 px-2 py-1 rounded-xl border border-rose-200">
+                          Single Attempt Limit Reached
+                        </span>
                       </div>
                     )}
                   </div>
