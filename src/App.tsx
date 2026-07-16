@@ -349,6 +349,7 @@ export default function App() {
     async function loadData() {
       try {
         const fetchedCourses = await db.fetchCourses();
+        let currentCourses = fetchedCourses.length > 0 ? fetchedCourses : INITIAL_COURSES;
         if (active) {
           // If courses database is empty, seed initial mock courses (if instructor)
           if (fetchedCourses.length === 0 && currentUser.role === 'instructor') {
@@ -356,17 +357,53 @@ export default function App() {
               await db.upsertCourse(course);
             }
             const seeded = await db.fetchCourses();
-            if (active) setCourses(seeded);
+            if (active) {
+              setCourses(seeded);
+              currentCourses = seeded;
+            }
           } else {
-            setCourses(fetchedCourses.length > 0 ? fetchedCourses : INITIAL_COURSES);
+            setCourses(currentCourses);
           }
         }
 
         const fetchedAssignments = await db.fetchAssignments();
-        if (active) setAssignments(fetchedAssignments);
+        const mappedAssignments = fetchedAssignments.map(a => {
+          if (a.id.startsWith('quiz_')) {
+            const course = currentCourses.find(c => c.id === a.courseId);
+            const weekNum = a.id.split('_').pop() || '1';
+            const week = course?.weeks.find(w => w.weekNumber === parseInt(weekNum));
+            if (week?.quiz && week.quiz.length > 0) {
+              return {
+                ...a,
+                maxScore: week.quiz.length
+              };
+            }
+          }
+          return a;
+        });
+        if (active) setAssignments(mappedAssignments);
 
         const fetchedSubmissions = await db.fetchSubmissions(currentUser.id, currentUser.role);
-        if (active) setSubmissions(fetchedSubmissions);
+        const mappedSubmissions = fetchedSubmissions.map(sub => {
+          if (sub.assignmentId.startsWith('quiz_') && (sub.grade === undefined || sub.grade === null)) {
+            const course = currentCourses.find(c => c.id === sub.courseId);
+            const weekNum = sub.assignmentId.split('_').pop() || '1';
+            const week = course?.weeks.find(w => w.weekNumber === parseInt(weekNum));
+            const quizQuestions = week?.quiz || [];
+            const hasEssayQuestion = quizQuestions.some(q => q.type === 'essay');
+            if (quizQuestions.length > 0 && !hasEssayQuestion) {
+              const match = sub.textContent.match(/Score:\s*(\d+)/);
+              if (match) {
+                return {
+                  ...sub,
+                  grade: parseInt(match[1])
+                };
+              }
+            }
+          }
+          return sub;
+        });
+        if (active) setSubmissions(mappedSubmissions);
 
         // Load enrollments — students see their own, instructors see all
         const fetchedEnrollments = currentUser.role === 'student'
@@ -585,6 +622,8 @@ export default function App() {
         if (!alreadyExists) {
           const course = courses.find(c => c.id === submission.courseId);
           const weekNum = quizAssignId.split('_').pop() || '1';
+          const week = course?.weeks.find(w => w.weekNumber === parseInt(weekNum));
+          const quizQuestionsCount = week?.quiz?.length || 100;
           const newQuizAssignment: Assignment = {
             id: quizAssignId,
             courseId: submission.courseId,
@@ -592,7 +631,7 @@ export default function App() {
             description: `Quiz answers & essay assessment for Week ${weekNum}`,
             dueDate: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
             createdAt: new Date().toISOString(),
-            maxScore: 100
+            maxScore: quizQuestionsCount
           };
           await db.upsertAssignment(newQuizAssignment);
           setAssignments(prev => [newQuizAssignment, ...prev]);

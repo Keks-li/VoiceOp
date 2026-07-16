@@ -323,12 +323,14 @@ export default function StudentDashboard({
     }).join('\n\n');
 
     try {
+      const hasEssayQuestion = questions.some(q => q.type === 'essay');
       await onSubmitAssignment({
         assignmentId: `quiz_${selectedCourse!.id}_${selectedWeek.weekNumber}`,
         courseId: selectedCourse!.id,
         studentId: currentUser.id,
         studentName: currentUser.name,
         textContent: `--- WEEK ${selectedWeek.weekNumber} QUIZ SUBMISSION ---\nScore: ${correctCount}/${mcqCount} MCQ Correct\n\n${answersSummary}`,
+        grade: hasEssayQuestion ? undefined : correctCount,
       });
       setQuizScore(correctCount);
       setQuizSubmitted(true);
@@ -363,6 +365,11 @@ export default function StudentDashboard({
   );
 
   const selectedWeek = selectedCourse?.weeks[selectedWeekIndex];
+
+  const currentQuizId = selectedCourse && selectedWeek ? `quiz_${selectedCourse.id}_${selectedWeek.weekNumber}` : '';
+  const currentQuizSubmission = submissions.find(s => s.assignmentId === currentQuizId && s.studentId === currentUser.id);
+  const currentQuizAssignment = assignments.find(a => a.id === currentQuizId);
+  const hasEssayQuestion = selectedWeek?.quiz?.some(q => q.type === 'essay') ?? false;
 
   // Handle Voice Commands
   useEffect(() => {
@@ -786,16 +793,59 @@ export default function StudentDashboard({
                         Submit Test Responses
                       </button>
                     ) : (
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-black uppercase text-slate-500">
-                          Quiz graded MCQs score:
-                        </span>
-                        <span className="text-sm font-black px-3.5 py-1.5 border-2 border-black bg-[#FFD600] rounded-full text-black">
-                          {quizScore} / {selectedWeek.quiz.filter(q => (q.type || 'mcq') === 'mcq').length} Correct
-                        </span>
-                        <span className="text-[10px] font-black uppercase text-rose-500 bg-rose-50 dark:bg-rose-950/20 px-2 py-1 rounded-xl border border-rose-200">
-                          Single Attempt Limit Reached
-                        </span>
+                      <div className="w-full">
+                        {hasEssayQuestion ? (
+                          currentQuizSubmission?.grade !== undefined && currentQuizSubmission?.grade !== null ? (
+                            <div className="flex flex-col gap-2 p-3 bg-emerald-50 dark:bg-slate-800 border-2 border-emerald-500 rounded-2xl w-full">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <span className="text-xs font-black uppercase text-emerald-800 dark:text-emerald-350">
+                                  Quiz Graded Score:
+                                </span>
+                                <span className="text-sm font-black px-3.5 py-1.5 border-2 border-black bg-[#FFD600] rounded-full text-black">
+                                  {currentQuizSubmission.grade} / {currentQuizAssignment?.maxScore || 100}
+                                </span>
+                                <span className="text-[10px] font-black uppercase text-rose-500 bg-rose-50 dark:bg-rose-950/20 px-2 py-1 rounded-xl border border-rose-200">
+                                  Single Attempt Limit Reached
+                                </span>
+                              </div>
+                              {currentQuizSubmission.feedback && (
+                                <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mt-1 border-t border-emerald-200 dark:border-slate-700 pt-1.5">
+                                  <span className="font-black text-emerald-800 dark:text-emerald-450">Feedback:</span> "{currentQuizSubmission.feedback}"
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-3 flex-wrap bg-amber-50 dark:bg-slate-800 p-3 border-2 border-amber-400 rounded-2xl w-full">
+                              <span className="text-xs font-black uppercase text-amber-800 dark:text-amber-300">
+                                MCQ Score:
+                              </span>
+                              <span className="text-sm font-black px-3.5 py-1.5 border-2 border-black bg-white dark:bg-slate-900 rounded-full text-black dark:text-white">
+                                {quizScore} / {selectedWeek.quiz.filter(q => (q.type || 'mcq') === 'mcq').length} Correct
+                              </span>
+                              <span className="text-[10px] font-black uppercase text-amber-600 bg-amber-100 dark:bg-amber-950/20 px-2 py-1 rounded-xl border border-amber-200">
+                                Pending instructor grading
+                              </span>
+                              <span className="text-[10px] font-black uppercase text-rose-500 bg-rose-50 dark:bg-rose-950/20 px-2 py-1 rounded-xl border border-rose-200 ml-auto">
+                                Single Attempt Limit Reached
+                              </span>
+                            </div>
+                          )
+                        ) : (
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="text-xs font-black uppercase text-slate-500">
+                              Quiz Score (Auto-Calculated):
+                            </span>
+                            <span className="text-sm font-black px-3.5 py-1.5 border-2 border-black bg-[#FFD600] rounded-full text-black">
+                              {quizScore} / {selectedWeek.quiz.filter(q => (q.type || 'mcq') === 'mcq').length} Correct
+                            </span>
+                            <span className="text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-1 rounded-xl border border-emerald-200">
+                              Auto-Graded
+                            </span>
+                            <span className="text-[10px] font-black uppercase text-rose-500 bg-rose-50 dark:bg-rose-950/20 px-2 py-1 rounded-xl border border-rose-200">
+                              Single Attempt Limit Reached
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
